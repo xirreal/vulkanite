@@ -6,6 +6,6 @@ import me.jellysquid.mods.sodium.client.render.chunk.RenderSection;
 
 import java.util.List;
 
-public record JobPassThroughData(RenderSection section, long time, List<VRef<VBuffer>> geometryBuffers) {
+public record JobPassThroughData(RenderSection section, long time, VRef<VBuffer> geometryBuffer, List<Long> bufferOffsets) {
 
 }

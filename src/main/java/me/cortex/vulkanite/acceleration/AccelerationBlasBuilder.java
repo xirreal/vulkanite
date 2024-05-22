@@ -220,9 +220,10 @@ public class AccelerationBlasBuilder {
                         // 1: inAddr
                         // 2: outAddr
                         var pushConstant = new long[3];
-                        var geometryInputBuffer = job.data.geometryBuffers().get(geoIdx);
+                        var geometryInputBuffer = job.data.geometryBuffer();
+                        var geometryInputBufferOffset = job.data.bufferOffsets().get(geoIdx);
                         pushConstant[0] = geometry.quadCount * 4L;
-                        pushConstant[1] = geometryInputBuffer.get().deviceAddress();
+                        pushConstant[1] = geometryInputBuffer.get().deviceAddress() + geometryInputBufferOffset;
                         pushConstant[2] = buildBuffer.deviceAddress();
                         if (pushConstant[1] == 0) {
                             throw new IllegalStateException("Geometry input buffer address is 0");
@@ -380,15 +381,8 @@ public class AccelerationBlasBuilder {
 
 
 
-    private VRef<VBuffer> uploadTerrainGeometry(BuiltSectionMeshParts meshParts, VCmdBuff cmd) {
-        var buff = context.memory.createBuffer(meshParts.getVertexData().getLength(),
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        buff.get().setDebugUtilsObjectName("Terrain geometry buffer");
-
-        cmd.encodeDataUpload(context.memory, MemoryUtil.memAddress(meshParts.getVertexData().getDirectBuffer()), buff, 0, meshParts.getVertexData().getLength());
-
-        return buff;
+    private void uploadTerrainGeometry(BuiltSectionMeshParts meshParts, VRef<VBuffer> buffer, long destOffset, VCmdBuff cmd) {
+        cmd.encodeDataUpload(context.memory, MemoryUtil.memAddress(meshParts.getVertexData().getDirectBuffer()), buffer, destOffset, meshParts.getVertexData().getLength());
     }
 
     // Enqueues jobs of section blas builds
@@ -402,27 +396,49 @@ public class AccelerationBlasBuilder {
             var acbr = ((IAccelerationBuildResult) cbr).getAccelerationGeometryData();
             if (acbr == null)
                 continue;
+
+            List<BuiltSectionMeshParts> geometries = new ArrayList<>();
+
+            long totalSize = 0;
+            for (var entry : acbr.entrySet()) {
+                var geometry = cbr.getMesh(entry.getKey());
+                var dataSize = geometry.getVertexData().getLength();
+                if (dataSize == 0) {
+                    throw new IllegalStateException();
+                }
+                if (!hasJobs) {
+                    hasJobs = true;
+                }
+                totalSize += dataSize;
+                geometries.add(geometry);
+            }
+
+            var geomBuffer = context.memory.createBuffer(totalSize,
+                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            geomBuffer.get().setDebugUtilsObjectName("Terrain geometry buffer");
+
             List<BLASTriangleData> buildData = new ArrayList<>();
-            List<VRef<VBuffer>> geometryBuffers = new ArrayList<>();
+            List<Long> bufferOffsets = new ArrayList<>();
+            int i = 0;
+            long destOffset = 0;
             for (var entry : acbr.entrySet()) {
                 int flag = entry.getKey() == DefaultTerrainRenderPasses.SOLID ? VK_GEOMETRY_OPAQUE_BIT_KHR : 0;
                 buildData.add(new BLASTriangleData(entry.getValue().quadCount(), flag));
 
-                var geometry = cbr.getMesh(entry.getKey());
-                if (geometry.getVertexData().getLength() == 0) {
-                    throw new IllegalStateException();
-                }
+                var meshParts = geometries.get(i);
+                long dataSize = meshParts.getVertexData().getLength();
 
-                if (!hasJobs) {
-                    hasJobs = true;
-                }
+                cmd.get().encodeDataUpload(context.memory, MemoryUtil.memAddress(meshParts.getVertexData().getDirectBuffer()), geomBuffer, destOffset, dataSize);
+                bufferOffsets.add(destOffset);
 
-                geometryBuffers.add(uploadTerrainGeometry(geometry, cmd.get()));
+                destOffset += dataSize;
+                i++;
             }
 
-            if (buildData.size() > 0) {
+            if (!buildData.isEmpty()) {
                 jobs.add(new BLASBuildJob(buildData,
-                        new JobPassThroughData(cbr.render, cbr.buildTime, geometryBuffers)));
+                        new JobPassThroughData(cbr.render, cbr.buildTime, geomBuffer, bufferOffsets)));
             }
         }
 

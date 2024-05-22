@@ -116,6 +116,30 @@ public class DescriptorUpdateBuilder {
         return this;
     }
 
+    public DescriptorUpdateBuilder buffer(int binding, int dstArrayElement, final VRef<VBuffer> buffer, List<Long> offsets) {
+        if (refSet != null && refSet.getBindingAt(binding) == null) {
+            return this;
+        }
+        var bufInfo = VkDescriptorBufferInfo.calloc(offsets.size());
+        for (int i = 0; i < offsets.size(); i++) {
+            setRef.get().addRef(binding, buffer.addRefGeneric());
+            bufInfo.get(i)
+                    .buffer(buffer.get().buffer())
+                    .offset(offsets.get(i))
+                    .range(VK_WHOLE_SIZE);
+        }
+        updates.get()
+                .sType$Default()
+                .dstBinding(binding)
+                .dstSet(set)
+                .dstArrayElement(dstArrayElement)
+                .descriptorType(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+                .descriptorCount(offsets.size())
+                .pBufferInfo(bufInfo);
+        bulkBufferInfos.add(bufInfo);
+        return this;
+    }
+
 
     public DescriptorUpdateBuilder uniform(int binding, final VRef<VBuffer> buffer) {
         return uniform(binding, buffer, 0, VK_WHOLE_SIZE);
