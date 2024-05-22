@@ -76,7 +76,7 @@ public class DescriptorUpdateBuilder {
         if (refSet != null && refSet.getBindingAt(binding) == null) {
             return this;
         }
-        setRef.get().refs.put(binding, buffer.addRefGeneric());
+        setRef.get().addRef(binding, buffer.addRefGeneric());
         updates.get()
                 .sType$Default()
                 .dstBinding(binding)
@@ -98,7 +98,7 @@ public class DescriptorUpdateBuilder {
         }
         var bufInfo = VkDescriptorBufferInfo.calloc(buffers.size());
         for (int i = 0; i < buffers.size(); i++) {
-            setRef.get().refs.put(binding, buffers.get(i).addRefGeneric());
+            setRef.get().addRef(binding, buffers.get(i).addRefGeneric());
             bufInfo.get(i)
                     .buffer(buffers.get(i).get().buffer())
                     .offset(0)
@@ -124,7 +124,7 @@ public class DescriptorUpdateBuilder {
         if (refSet != null && refSet.getBindingAt(binding) == null) {
             return this;
         }
-        setRef.get().refs.put(binding, buffer.addRefGeneric());
+        setRef.get().addRef(binding, buffer.addRefGeneric());
         updates.get()
                 .sType$Default()
                 .dstBinding(binding)
@@ -145,7 +145,7 @@ public class DescriptorUpdateBuilder {
         }
         var buff = stack.mallocLong(structures.length);
         for (var structure : structures) {
-            setRef.get().refs.put(binding, structure.addRefGeneric());
+            setRef.get().addRef(binding, structure.addRefGeneric());
             buff.put(structure.get().structure);
         }
         buff.rewind();
@@ -167,7 +167,7 @@ public class DescriptorUpdateBuilder {
         }
         var imgInfo = VkDescriptorImageInfo.calloc(views.size());
         for (int i = 0; i < views.size(); i++) {
-            setRef.get().refs.put(binding, views.get(i).addRefGeneric());
+            setRef.get().addRef(binding, views.get(i).addRefGeneric());
             imgInfo.get(i)
                     .imageLayout(VK_IMAGE_LAYOUT_GENERAL)
                     .imageView(viewOrPlaceholder(views.get(i)));
@@ -189,7 +189,7 @@ public class DescriptorUpdateBuilder {
         if (refSet != null && refSet.getBindingAt(binding) == null) {
             return this;
         }
-        setRef.get().refs.put(binding, view.addRefGeneric());
+        setRef.get().addRef(binding, view.addRefGeneric());
         updates.get()
                 .sType$Default()
                 .dstBinding(binding)
@@ -211,7 +211,7 @@ public class DescriptorUpdateBuilder {
         if (refSet != null && refSet.getBindingAt(binding) == null) {
             return this;
         }
-        setRef.get().refs.put(binding, view.addRefGeneric());
+        setRef.get().addRef(binding, view.addRefGeneric());
         updates.get()
                 .sType$Default()
                 .dstBinding(binding)

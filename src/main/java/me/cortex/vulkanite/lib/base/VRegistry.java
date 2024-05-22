@@ -1,11 +1,10 @@
 package me.cortex.vulkanite.lib.base;
 
 import com.google.common.collect.ConcurrentHashMultiset;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import me.cortex.vulkanite.lib.memory.VBuffer;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
 
 import static org.lwjgl.vulkan.KHRAccelerationStructure.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
 import static org.lwjgl.vulkan.KHRAccelerationStructure.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
@@ -16,17 +15,44 @@ import static org.lwjgl.vulkan.VK12.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 public class VRegistry {
     public static final VRegistry INSTANCE = new VRegistry();
 
-    private final ConcurrentHashMultiset<VObject> objects = ConcurrentHashMultiset.create();
+    private static class ObjectHeap {
+        protected final long threadId = Thread.currentThread().getId();
+        protected final String threadName = Thread.currentThread().getName();
+
+        protected final HashSet<VObject> objects = new HashSet<>();
+        protected final ConcurrentLinkedDeque<VObject> toFree = new ConcurrentLinkedDeque<>();
+
+        protected void collect() {
+            if (Thread.currentThread().getId() != threadId) {
+                throw new IllegalStateException("Object heap collect called from wrong thread");
+            }
+            VObject object;
+            while ((object = toFree.poll()) != null) {
+                objects.remove(object);
+                object.free();
+            }
+        }
+    }
+
+    private final ConcurrentHashMultiset<ObjectHeap> objectHeaps = ConcurrentHashMultiset.create();
+
+    private final ThreadLocal<ObjectHeap> heap = ThreadLocal.withInitial(()->{
+        var heap = new ObjectHeap();
+        objectHeaps.add(heap);
+        return heap;
+    });
 
     private VRegistry() {
     }
 
     public void register(VObject object) {
-        objects.add(object);
+        heap.get().objects.add(object);
+        object.heap = heap.get();
     }
 
     public void unregister(VObject object) {
-        objects.remove(object);
+        ObjectHeap heap = (ObjectHeap) object.heap;
+        heap.toFree.add(object);
     }
 
     private static final HashMap<Integer, String> usageNames = new HashMap<>() {{
@@ -45,7 +71,11 @@ public class VRegistry {
     public String dumpStats() {
         final StringBuilder sb = new StringBuilder();
 
-        sb.append("VRegistry: ").append(objects.size()).append(" objects\n");
+        ObjectHeap heap = this.heap.get();
+        var objects = heap.objects;
+
+        sb.append("\nVRegistry (Thread=").append(heap.threadId).append(" ").append(heap.threadName).append("): ");
+        sb.append(objects.size()).append(" objects\n");
         sb.append("Objects:\n");
 
         Map<String, Integer> typeCount = new TreeMap<>();
@@ -79,5 +109,9 @@ public class VRegistry {
         }
 
         return sb.toString();
+    }
+
+    public void threadLocalCollect() {
+        heap.get().collect();
     }
 }

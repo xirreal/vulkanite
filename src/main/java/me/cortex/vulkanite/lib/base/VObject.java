@@ -16,8 +16,9 @@ public abstract class VObject {
 
     protected void decRef() {
         if (refCount.decrementAndGet() == 0) {
-            free();
             VRegistry.INSTANCE.unregister(this);
         }
     }
+
+    public Object heap = null;
 }

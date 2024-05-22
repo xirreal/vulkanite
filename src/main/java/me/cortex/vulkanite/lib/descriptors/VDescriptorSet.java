@@ -11,7 +11,14 @@ public class VDescriptorSet extends VObject {
     public final long poolHandle;
     public final long set;
 
-    public Map<Integer, VRef<VObject>> refs = new HashMap<>();
+    private Map<Integer, VRef<VObject>> refs = new HashMap<>();
+
+    public void addRef(int binding, VRef<VObject> ref) {
+        var old = refs.put(binding, ref);
+        if (old != null) {
+            old.close();
+        }
+    }
 
     protected VDescriptorSet(VRef<VDescriptorPool> pool, long poolHandle, long set) {
         this.pool = pool;
@@ -22,5 +29,6 @@ public class VDescriptorSet extends VObject {
     @Override
     protected void free() {
         pool.get().freeSet(this);
+        refs.values().forEach(VRef::close);
     }
 }

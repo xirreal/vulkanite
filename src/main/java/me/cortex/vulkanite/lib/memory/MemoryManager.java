@@ -303,7 +303,9 @@ public class MemoryManager {
                             .size(size)
                             .buffer(buffer.get().buffer()), null, pAccelerationStructure),
                     "Failed to create acceleration acceleration structure");
-            return VAccelerationStructure.create(device, pAccelerationStructure.get(0), buffer);
+            var ret = VAccelerationStructure.create(device, pAccelerationStructure.get(0), buffer);
+            buffer.close();
+            return ret;
         }
     }
 

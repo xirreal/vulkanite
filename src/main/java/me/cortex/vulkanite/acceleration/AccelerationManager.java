@@ -60,8 +60,7 @@ public class AccelerationManager {
     public VRef<VAccelerationStructure> buildTLAS(int queueId, VCmdBuff cmd) {
         blasExecutions.forEach(exec -> ctx.cmd.queueWaitForExeuction(queueId, blasBuilder.getAsyncQueue(), exec));
         blasExecutions.clear();
-        tlasManager.buildTLAS(cmd);
-        return tlasManager.getTlas();
+        return tlasManager.buildTLAS(cmd);
     }
 
     public void sectionRemove(RenderSection section) {

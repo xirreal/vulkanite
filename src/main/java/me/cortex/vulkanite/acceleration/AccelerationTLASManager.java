@@ -38,8 +38,6 @@ public class AccelerationTLASManager {
     private final VContext context;
     private final int queue;
 
-    private VRef<VAccelerationStructure> currentTLAS;
-
     public AccelerationTLASManager(VContext context, int queue) {
         this.context = context;
         this.queue = queue;
@@ -71,7 +69,7 @@ public class AccelerationTLASManager {
 
     // TODO: cleanup, this is very messy
     // FIXME: in the case of no geometry create an empty tlas or something???
-    public void buildTLAS(VCmdBuff cmd) {
+    public VRef<VAccelerationStructure> buildTLAS(VCmdBuff cmd) {
         RenderSystem.assertOnRenderThread();
 
         // NOTE: renderLink is required to ensure that we are not overriding memory that
@@ -188,15 +186,8 @@ public class AccelerationTLASManager {
 
             cmd.encodeMemoryBarrier();
 
-            if (currentTLAS != null) {
-                currentTLAS.close();
-            }
-            currentTLAS = tlas;
+            return tlas;
         }
-    }
-
-    public VRef<VAccelerationStructure> getTlas() {
-        return currentTLAS.addRef();
     }
 
 
@@ -373,6 +364,7 @@ public class AccelerationTLASManager {
                                 .descriptorCount(setCapacity);
                         vkUpdateDescriptorSets(context.device, null, setCopy);
                     }
+                    geometryBufferDescSet.close();
                 }
 
                 geometryBufferDescSet = newGeometryBufferDescSet;

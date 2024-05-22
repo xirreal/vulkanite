@@ -8,6 +8,7 @@ import me.cortex.vulkanite.client.Vulkanite;
 import me.cortex.vulkanite.compat.IAccelerationBuildResult;
 import me.cortex.vulkanite.lib.base.VContext;
 import me.cortex.vulkanite.lib.base.VRef;
+import me.cortex.vulkanite.lib.base.VRegistry;
 import me.cortex.vulkanite.lib.cmd.VCmdBuff;
 import me.cortex.vulkanite.lib.cmd.VCommandPool;
 import me.cortex.vulkanite.lib.descriptors.DescriptorSetLayoutBuilder;
@@ -170,6 +171,8 @@ public class AccelerationBlasBuilder {
                     }
                 }
             }
+
+            VRegistry.INSTANCE.threadLocalCollect();
 
             var sinlgeUsePoolWorker = context.cmd.getSingleUsePool();
 

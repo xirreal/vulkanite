@@ -243,6 +243,7 @@ public class VulkanPipeline {
     public void renderPostShadows(List<VRef<VGImage>> vgOutImgs, Camera camera, ShaderStorageBuffer[] ssbos, MixinCelestialUniforms celestialUniforms) {
         ctx.cmd.newFrame();
 
+        VRegistry.INSTANCE.threadLocalCollect();
         System.out.println(VRegistry.INSTANCE.dumpStats());
 
         buildEntities();
