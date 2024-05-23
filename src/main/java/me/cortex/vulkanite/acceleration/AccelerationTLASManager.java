@@ -81,7 +81,7 @@ public class AccelerationTLASManager {
             // this is done for performance reasons when updating (adding/removing) sections
 
             VkAccelerationStructureGeometryKHR geometry = VkAccelerationStructureGeometryKHR.calloc(stack);
-            int instances = 0;
+            int instances = buildDataManager.sectionCount();
 
             Pair<VRef<VAccelerationStructure>, VRef<VBuffer>> entityBuild;
             if (entityData != null) {
@@ -90,46 +90,33 @@ public class AccelerationTLASManager {
                 entityBuild = null;
             }
 
-            {
-                // TODO: need to sync with respect to updates from gpu memory updates from
-                // TLASBuildDataManager
-                // OR SOMETHING CAUSE WITH MULTIPLE FRAMES GOING AT ONCE the gpu state of
-                // TLASBuildDataManager needs to be synced with
-                // the current build phase, and the gpu side needs to be updated accoringly and
-                // synced correctly
-
-                cmd.encodeMemoryBarrier();
-
-                VkAccelerationStructureInstanceKHR extra = null;
-                if (entityBuild != null) {
-                    extra = VkAccelerationStructureInstanceKHR.calloc(stack);
-                    extra.mask(~0)
-                            .instanceCustomIndex(0)
-                            .instanceShaderBindingTableRecordOffset(1)
-                            .accelerationStructureReference(entityBuild.getLeft().get().deviceAddress);
-                    extra.transform().matrix(new Matrix4x3f().getTransposed(stack.mallocFloat(12)));
-                    buildDataManager.descUpdateJobs.add(new TLASSectionManager.DescUpdateJob(0,0, entityBuild.getRight(), List.of(0L)));
-                    instances++;
-                }
-                buildDataManager.setGeometryUpdateMemory(geometry, extra);
-                instances += buildDataManager.sectionCount();
-
-                cmd.encodeMemoryBarrier();
+            VkAccelerationStructureInstanceKHR extra = null;
+            if (entityBuild != null) {
+                extra = VkAccelerationStructureInstanceKHR.calloc(stack);
+                extra.mask(~0)
+                        .instanceCustomIndex(0)
+                        .instanceShaderBindingTableRecordOffset(1)
+                        .accelerationStructureReference(entityBuild.getLeft().get().deviceAddress);
+                extra.transform().matrix(new Matrix4x3f().getTransposed(stack.mallocFloat(12)));
+                buildDataManager.descUpdateJobs.add(new TLASSectionManager.DescUpdateJob(0, 0, entityBuild.getRight(), List.of(0L)));
+                instances++;
             }
 
+            var instanceBuffer = buildDataManager.getInstanceBuffer(extra);
 
+            geometry.sType$Default()
+                    .geometryType(VK_GEOMETRY_TYPE_INSTANCES_KHR)
+                    .flags(0);
 
-            int[] instanceCounts = new int[]{instances};
-            {
-                geometry.sType$Default()
-                        .geometryType(VK_GEOMETRY_TYPE_INSTANCES_KHR)
-                        .flags(0);
+            geometry.geometry()
+                    .instances()
+                    .sType$Default()
+                    .arrayOfPointers(false);
 
-                geometry.geometry()
-                        .instances()
-                        .sType$Default()
-                        .arrayOfPointers(false);
-            }
+            geometry.geometry()
+                    .instances()
+                    .data()
+                    .deviceAddress(instanceBuffer.get().deviceAddress());
 
 
             // TLAS always rebuild & PREFER_FAST_TRACE according to Nvidia
@@ -145,12 +132,13 @@ public class AccelerationTLASManager {
                     .calloc(stack)
                     .sType$Default();
 
+            int[] instanceCounts = new int[]{instances};
             vkGetAccelerationStructureBuildSizesKHR(
                     context.device,
                     VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
                     buildInfo.get(0), // The reason its a buffer is cause of pain and that
-                                      // vkCmdBuildAccelerationStructuresKHR requires a buffer of
-                                      // VkAccelerationStructureBuildGeometryInfoKHR
+                    // vkCmdBuildAccelerationStructuresKHR requires a buffer of
+                    // VkAccelerationStructureBuildGeometryInfoKHR
                     stack.ints(instanceCounts),
                     buildSizesInfo);
 
@@ -178,10 +166,14 @@ public class AccelerationTLASManager {
             }
             buildRanges.rewind();
 
+            cmd.encodeMemoryBarrier();
+
             vkCmdBuildAccelerationStructuresKHR(cmd.buffer(),
                     buildInfo,
                     stack.pointers(buildRanges));
+            cmd.addBufferRef(instanceBuffer);
             cmd.addBufferRef(scratchBuffer);
+            instanceBuffer.close();
             scratchBuffer.close();
 
             cmd.encodeMemoryBarrier();
@@ -215,7 +207,7 @@ public class AccelerationTLASManager {
 
         // TODO: make the instances buffer, gpu permenent then stream updates instead of
         // uploading per frame
-        public VRef<VBuffer> setGeometryUpdateMemory(VkAccelerationStructureGeometryKHR struct, VkAccelerationStructureInstanceKHR addin) {
+        public VRef<VBuffer> getInstanceBuffer(VkAccelerationStructureInstanceKHR addin) {
             long size = (long) VkAccelerationStructureInstanceKHR.SIZEOF * count;
             long newSize = size + (addin==null?0:VkAccelerationStructureInstanceKHR.SIZEOF);
             if (newSize == 0) {
@@ -238,11 +230,6 @@ public class AccelerationTLASManager {
 
             data.get().unmap();
             data.get().flush();
-
-            struct.geometry()
-                    .instances()
-                    .data()
-                    .deviceAddress(data.get().deviceAddress());
 
             return data;
         }
@@ -355,15 +342,7 @@ public class AccelerationTLASManager {
                         + " with capacity " + newCapacity);
 
                 if (geometryBufferDescSet != null) {
-                    try (var stack = stackPush()) {
-                        var setCopy = VkCopyDescriptorSet.calloc(1, stack);
-                        setCopy.get(0)
-                                .sType$Default()
-                                .srcSet(geometryBufferDescSet.get().set)
-                                .dstSet(newGeometryBufferDescSet.get().set)
-                                .descriptorCount(setCapacity);
-                        vkUpdateDescriptorSets(context.device, null, setCopy);
-                    }
+                    newGeometryBufferDescSet.get().copyFrom(context, geometryBufferDescSet, setCapacity);
                     geometryBufferDescSet.close();
                 }
 
@@ -374,27 +353,24 @@ public class AccelerationTLASManager {
         }
 
         @Override
-        public VRef<VBuffer> setGeometryUpdateMemory(VkAccelerationStructureGeometryKHR struct, VkAccelerationStructureInstanceKHR addin) {
-            var instanceBuf = super.setGeometryUpdateMemory(struct, addin);
+        public VRef<VBuffer> getInstanceBuffer(VkAccelerationStructureInstanceKHR addin) {
             resizeBindlessSet(arena.maxIndex);
 
-            if (descUpdateJobs.isEmpty()) {
-                return null;
+            if (!descUpdateJobs.isEmpty()) {
+                var dub = new DescriptorUpdateBuilder(context, descUpdateJobs.size());
+                dub.set(geometryBufferDescSet);
+                while (!descUpdateJobs.isEmpty()) {
+                    var job = descUpdateJobs.poll();
+                    dub.buffer(job.binding, job.dstArrayElement, job.geometryBuffer, job.geometryBufferOffsets);
+                }
+                dub.apply();
             }
-
-            var dub = new DescriptorUpdateBuilder(context, descUpdateJobs.size());
-            dub.set(geometryBufferDescSet);
-            while (!descUpdateJobs.isEmpty()) {
-                var job = descUpdateJobs.poll();
-                dub.buffer(job.binding, job.dstArrayElement, job.geometryBuffer, job.geometryBufferOffsets);
-            }
-            dub.apply();
 
             // Since we have residency tracking through the descriptor set,
             // we can free the buffers immediately
             collect();
 
-            return instanceBuf;
+            return super.getInstanceBuffer(addin);
         }
 
         // TODO: mixinto RenderSection and add a reference to a holder for us, its much

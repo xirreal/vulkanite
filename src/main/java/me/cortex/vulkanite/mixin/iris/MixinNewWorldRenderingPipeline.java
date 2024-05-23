@@ -102,5 +102,8 @@ public class MixinNewWorldRenderingPipeline {
         pipeline.destory();
         rtShaderPasses = null;
         pipeline = null;
+
+        // Force a GC, collect all dangling resources
+        System.gc();
     }
 }

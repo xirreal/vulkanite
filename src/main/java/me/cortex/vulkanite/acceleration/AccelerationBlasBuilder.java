@@ -13,6 +13,7 @@ import me.cortex.vulkanite.lib.cmd.VCmdBuff;
 import me.cortex.vulkanite.lib.cmd.VCommandPool;
 import me.cortex.vulkanite.lib.descriptors.DescriptorSetLayoutBuilder;
 import me.cortex.vulkanite.lib.descriptors.VDescriptorSetLayout;
+import me.cortex.vulkanite.lib.memory.AccelerationStructurePool;
 import me.cortex.vulkanite.lib.memory.PoolLinearAllocator;
 import me.cortex.vulkanite.lib.memory.VAccelerationStructure;
 import me.cortex.vulkanite.lib.memory.VBuffer;
@@ -66,11 +67,14 @@ public class AccelerationBlasBuilder {
         return asyncQueue;
     }
 
+    private final AccelerationStructurePool accelerationStructurePool;
+
     public AccelerationBlasBuilder(VContext context, int asyncQueue, Consumer<BLASBatchResult> resultConsumer) {
         this.queryPool = VQueryPool.create(context.device, 10000, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR);
         this.context = context;
         this.asyncQueue = asyncQueue;
         this.resultConsumer = resultConsumer;
+        this.accelerationStructurePool = new AccelerationStructurePool(context);
 
         var decodeShader = VShader.compileLoad(context, """
                         #version 460
@@ -345,8 +349,7 @@ public class AccelerationBlasBuilder {
 
                     // Dont need a memory barrier cause submit ensures cache flushing already
                     for (int idx = 0; idx < compactedSizes.length; idx++) {
-                        var compact_as = context.memory.createAcceleration(compactedSizes[idx], 256,
-                                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR, VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR);
+                        var compact_as = accelerationStructurePool.createAcceleration(compactedSizes[idx], VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR);
                         var fat_as = accelerationStructures.get(idx);
 
                         vkCmdCopyAccelerationStructureKHR(cmdRef.get().buffer(), VkCopyAccelerationStructureInfoKHR.calloc(stack).sType$Default()

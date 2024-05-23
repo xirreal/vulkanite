@@ -243,9 +243,6 @@ public class VulkanPipeline {
     public void renderPostShadows(List<VRef<VGImage>> vgOutImgs, Camera camera, ShaderStorageBuffer[] ssbos, MixinCelestialUniforms celestialUniforms) {
         ctx.cmd.newFrame();
 
-        VRegistry.INSTANCE.threadLocalCollect();
-        System.out.println(VRegistry.INSTANCE.dumpStats());
-
         buildEntities();
 
         PBRTextureManager.notifyPBRTexturesChanged();
@@ -262,6 +259,7 @@ public class VulkanPipeline {
         var tlas = accelerationManager.buildTLAS(0, cmd);
 
         if (tlas == null) {
+            VRegistry.INSTANCE.threadLocalCollect();
             glFinish();
             return;
         }
@@ -428,6 +426,9 @@ public class VulkanPipeline {
         vref_out.close();
         in.close();
         out.close();
+
+        VRegistry.INSTANCE.threadLocalCollect();
+        System.out.println(VRegistry.INSTANCE.dumpStats());
     }
 
     public void destory() {

@@ -58,7 +58,7 @@ public class AccelerationManager {
     }
 
     public VRef<VAccelerationStructure> buildTLAS(int queueId, VCmdBuff cmd) {
-        blasExecutions.forEach(exec -> ctx.cmd.queueWaitForExeuction(queueId, blasBuilder.getAsyncQueue(), exec));
+        ctx.cmd.queueWaitForExecutions(queueId, blasBuilder.getAsyncQueue(), blasExecutions);
         blasExecutions.clear();
         return tlasManager.buildTLAS(cmd);
     }

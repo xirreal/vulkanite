@@ -10,7 +10,6 @@ import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 
 public class VAccelerationStructure extends VObject {
     public final long structure;
-    @SuppressWarnings("FieldCanBeLocal")
     private final VRef<VBuffer> buffer;
 
     public final long deviceAddress;

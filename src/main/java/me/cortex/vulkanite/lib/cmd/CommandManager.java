@@ -5,6 +5,9 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.mojang.blaze3d.systems.RenderSystem;
 import io.netty.util.internal.shaded.org.jctools.queues.MessagePassingQueue.Consumer;
+import it.unimi.dsi.fastutil.ints.Int2LongArrayMap;
+import it.unimi.dsi.fastutil.ints.Int2LongMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import me.cortex.vulkanite.lib.base.VRef;
 import me.cortex.vulkanite.lib.other.sync.VFence;
 import me.cortex.vulkanite.lib.other.sync.VSemaphore;
@@ -15,6 +18,7 @@ import java.nio.LongBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static me.cortex.vulkanite.lib.other.VUtil._CHECK_;
 import static org.lwjgl.system.MemoryStack.stackPush;
@@ -77,6 +81,17 @@ public class CommandManager {
     }
 
     /**
+     * Enqueues a wait for a timeline value on a queue
+     *
+     * @param waitQueueId      The queue that will wait
+     * @param executionQueueId The queue whose timeline value will be waited for
+     * @param executions       The timeline values to wait for
+     */
+    public void queueWaitForExecutions(int waitQueueId, int executionQueueId, List<Long> executions) {
+        queues[waitQueueId].waitForExecutions(executionQueueId, executions);
+    }
+
+    /**
      * Wait on the host for a timeline value on a queue
      *
      * @param waitQueueId The queue whose timeline value will be waited for
@@ -95,9 +110,7 @@ public class CommandManager {
             _CHECK_(vkWaitSemaphores(device, waitInfo, -1));
         }
 
-        synchronized (queues[waitQueueId]) {
-            waitQueue.completedTimestamp = Long.max(waitQueue.completedTimestamp, execution);
-        }
+        waitQueue.updateCompletedTimestamp(execution);
         waitQueue.collect();
     }
 
@@ -129,12 +142,12 @@ public class CommandManager {
 
     private static class Queue {
         public final VkQueue queue;
-        public final Multimap<Integer, Long> waitingFor = Multimaps.synchronizedMultimap(HashMultimap.create());
-        public final ConcurrentHashMap<Long, VRef<VCmdBuff>> submitted = new ConcurrentHashMap<>();
+        private final Int2LongArrayMap waitingFor = new Int2LongArrayMap();
+        private final Long2ObjectOpenHashMap<VRef<VCmdBuff>> submitted = new Long2ObjectOpenHashMap<>();
         public final VRef<VSemaphore> timelineSema;
 //        public final Deque<Long> frameTimestamps = new ArrayDeque<>(3);
         public AtomicLong timeline = new AtomicLong(1);
-        public long completedTimestamp = 0;
+        public AtomicLong completedTimestamp = new AtomicLong(0);
 
         public Queue(int queueId, VkDevice device) {
             try (var stack = stackPush()) {
@@ -158,27 +171,36 @@ public class CommandManager {
             }
         }
 
+        public void updateCompletedTimestamp(long newTimestamp) {
+            // completedTimestamp.atomicMax(newTimestamp);
+            long current;
+            do {
+                current = completedTimestamp.get();
+            } while (current < newTimestamp && !completedTimestamp.compareAndSet(current, newTimestamp));
+        }
+
         public void newFrame() {
 //            if (frameTimestamps.size() >= 3) {
 //                long oldest = frameTimestamps.removeFirst();
 //                completedTimestamp = Long.max(completedTimestamp, oldest);
 //            }
 //            frameTimestamps.addLast(completedTimestamp);
-            completedTimestamp = Long.max(completedTimestamp, getCurrentExecution());
 
+            updateCompletedTimestamp(getCurrentExecution());
             collect();
         }
 
         public void collect() {
-            synchronized (this) {
-                for (var entry : submitted.entrySet()) {
-                    if (entry.getKey() <= completedTimestamp) {
-                        // We know it's gone, we can early-close it
-                        // So that we don't need to wait for GC
-                        entry.getValue().close();
+            synchronized (submitted) {
+                long completedTimestamp = this.completedTimestamp.get();
+
+                submitted.forEach((time, cmdRef) -> {
+                    if (time <= completedTimestamp) {
+                        cmdRef.close();
                     }
-                }
-                for (var key : submitted.keySet()) {
+                });
+
+                for (long key : submitted.keySet()) {
                     if (key <= completedTimestamp) {
                         submitted.remove(key);
                     }
@@ -187,29 +209,39 @@ public class CommandManager {
         }
 
         public void waitIdle() {
-            _CHECK_(vkQueueWaitIdle(queue));
-
-            synchronized (this) {
+            synchronized (waitingFor) {
+                vkQueueWaitIdle(queue);
                 waitingFor.clear();
-                submitted.forEach((k, v) -> v.close());
-                submitted.clear();
-                completedTimestamp = timeline.get() - 1;
             }
+
+            updateCompletedTimestamp(getCurrentExecution());
+            collect();
         }
 
         public void waitForExecution(int execQueue, long execution) {
-            synchronized (this) {
-                waitingFor.put(execQueue, execution);
+            synchronized (waitingFor) {
+                waitingFor.put(execQueue, Long.max(waitingFor.getOrDefault(execQueue, 0), execution));
+            }
+        }
+
+        public void waitForExecutions(int execQueue, List<Long> executions) {
+            synchronized (waitingFor) {
+                long execMax = executions.stream().mapToLong(Long::longValue).max().orElse(waitingFor.getOrDefault(execQueue, 0));
+                waitingFor.put(execQueue, execMax);
             }
         }
 
         public long submit(final VRef<VCmdBuff> cmdBuff, Queue[] queues, List<VRef<VSemaphore>> waits, List<VRef<VSemaphore>> triggers, VFence fence) {
             long t = timeline.getAndIncrement();
 
-            synchronized (this) {
+            synchronized (waitingFor) {
+                // We need to hold the lock until we have submitted cmdbuf into the queue
+                // Otherwise it might be possible that another thread will submit a cmdbuf without waiting for anything
+                // Queue submits has strong API ordering
+                var timelineWaitingEntries = waitingFor.int2LongEntrySet();
+                waitingFor.clear();
+
                 try (var stack = stackPush()) {
-                    Collection<Map.Entry<Integer, Long>> timelineWaitingEntries;
-                    timelineWaitingEntries = waitingFor.entries();
 
                     int waitCount = (waits == null ? 0 : waits.size()) + timelineWaitingEntries.size();
                     int triggerCount = (triggers == null ? 0 : triggers.size()) + 1;
@@ -237,9 +269,12 @@ public class CommandManager {
                     }
                     // Timeline semaphores
                     for (var entry : timelineWaitingEntries) {
-                        var sema = queues[entry.getKey()].timelineSema;
+                        if (entry.getLongValue() == 0) {
+                            continue;
+                        }
+                        var sema = queues[entry.getIntKey()].timelineSema;
                         waitSemaphores.put(sema.get().address());
-                        waitTimelineValues.put(entry.getValue());
+                        waitTimelineValues.put(entry.getLongValue());
                         waitStages.put(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
                         cmdBuff.get().addSemaphoreRef(sema);
                     }
@@ -269,8 +304,9 @@ public class CommandManager {
                             .pNext(timelineSubmitInfo.address());
                     _CHECK_(vkQueueSubmit(queue, submit, fence == null ? 0 : fence.address()));
                 }
+            }
 
-                waitingFor.clear();
+            synchronized (submitted) {
                 submitted.put(t, cmdBuff.addRef());
             }
 

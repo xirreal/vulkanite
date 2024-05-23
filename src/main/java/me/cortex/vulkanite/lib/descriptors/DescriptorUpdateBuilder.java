@@ -263,5 +263,6 @@ public class DescriptorUpdateBuilder {
             imgInfo.free();
         }
         bulkImageInfos.clear();
+        setRef.close();
     }
 }
