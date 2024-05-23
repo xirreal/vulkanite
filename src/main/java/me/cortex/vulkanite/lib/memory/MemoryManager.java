@@ -40,7 +40,7 @@ import static org.lwjgl.vulkan.VK11.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_
 import static org.lwjgl.vulkan.VK11.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT;
 
 public class MemoryManager {
-    private static final int EXTERNAL_MEMORY_HANDLE_TYPE = Vulkanite.IS_WINDOWS?VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT:VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    private static final int EXTERNAL_MEMORY_HANDLE_TYPE = Vulkanite.IS_WINDOWS?VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT:VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
     private final VkDevice device;
     private final VmaAllocator allocator;
     private final boolean hasDeviceAddresses;
@@ -74,7 +74,7 @@ public class MemoryManager {
                             _CHECK_(vkGetMemoryWin32HandleKHR(device, VkMemoryGetWin32HandleInfoKHR.calloc(stack)
                                     .sType$Default()
                                     .memory(vkMemory)
-                                    .handleType(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT), pb));
+                                    .handleType(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT), pb));
                             nativeHandle = pb.get(0);
                         } else {
                             IntBuffer pb = stack.callocInt(1);
@@ -103,7 +103,7 @@ public class MemoryManager {
                     if (Vulkanite.IS_WINDOWS) {
                         glImportMemoryWin32HandleEXT(newMemoryObject,
                                 memorySize,
-                                GL_HANDLE_TYPE_OPAQUE_WIN32_KMT_EXT, nativeHandle);
+                                GL_HANDLE_TYPE_OPAQUE_WIN32_EXT, nativeHandle);
                         _CHECK_GL_ERROR_();
                     } else {
                         glImportMemoryFdEXT(newMemoryObject, memorySize,
@@ -135,11 +135,11 @@ public class MemoryManager {
                     glDeleteMemoryObjectsEXT(tracked.desc.glMemoryObj);
                     _CHECK_GL_ERROR_();
                     if (Vulkanite.IS_WINDOWS) {
-                        // if (!Kernel32.INSTANCE.CloseHandle(new WinNT.HANDLE(new Pointer(tracked.desc.handle)))) {
-                        //     int error = Kernel32.INSTANCE.GetLastError();
-                        //     System.err.println("STATE MIGHT BE BROKEN! Failed to close handle: " + error);
-                        //     throw new IllegalStateException();
-                        // }
+                         if (!Kernel32.INSTANCE.CloseHandle(new WinNT.HANDLE(new Pointer(tracked.desc.handle)))) {
+                             int error = Kernel32.INSTANCE.GetLastError();
+                             System.err.println("STATE MIGHT BE BROKEN! Failed to close handle: " + error);
+                             throw new IllegalStateException();
+                         }
                     } else {
                         int code = 0;
                         if ((code = LibC.INSTANCE.close((int) tracked.desc.handle)) != 0) {

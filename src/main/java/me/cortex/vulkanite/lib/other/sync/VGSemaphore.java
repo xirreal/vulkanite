@@ -1,9 +1,11 @@
 package me.cortex.vulkanite.lib.other.sync;
 
+import com.sun.jna.Pointer;
+import com.sun.jna.platform.linux.LibC;
+import com.sun.jna.platform.win32.Kernel32;
+import com.sun.jna.platform.win32.WinNT;
 import me.cortex.vulkanite.client.Vulkanite;
 import me.cortex.vulkanite.lib.base.VRef;
-import me.cortex.vulkanite.lib.memory.HandleDescriptorManger;
-import me.cortex.vulkanite.lib.memory.MemoryManager;
 import org.lwjgl.vulkan.VkDevice;
 
 import static org.lwjgl.opengl.EXTSemaphore.*;
@@ -24,11 +26,20 @@ public class VGSemaphore extends VSemaphore {
 
     @Override
     protected void free() {
-        HandleDescriptorManger.close(handleDescriptor);
-        int glSemaphore = this.glSemaphore;
-        Vulkanite.INSTANCE.addSyncedCallback(() -> {
-            glDeleteSemaphoresEXT(glSemaphore);
-        });
+        glDeleteSemaphoresEXT(this.glSemaphore);
+        if (Vulkanite.IS_WINDOWS) {
+            if (!Kernel32.INSTANCE.CloseHandle(new WinNT.HANDLE(new Pointer(handleDescriptor)))) {
+                int error = Kernel32.INSTANCE.GetLastError();
+                System.err.println("STATE MIGHT BE BROKEN! Failed to close handle: " + error);
+                throw new IllegalStateException();
+            }
+        } else {
+            int code = 0;
+            if ((code = LibC.INSTANCE.close((int) handleDescriptor)) != 0) {
+                System.err.println("STATE MIGHT BE BROKEN! Failed to close FD: " + code);
+                throw new IllegalStateException();
+            }
+        }
         super.free();
     }
 
