@@ -83,7 +83,7 @@ public abstract class MixinRenderTarget implements IRenderTargetVkGetter {
 
     @Redirect(method = "destroy", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/GlStateManager;_deleteTextures([I)V"))
     private void redirectResize(int[] textures) {
-        glFinish();
+//        glFinish();
         //TODO: block the gpu fully before deleting and resizing the textures
         vgMainTexture = null;
         vgAltTexture = null;

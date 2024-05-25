@@ -34,6 +34,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+import static org.lwjgl.opengl.GL11.glFinish;
+
 @Mixin(value = NewWorldRenderingPipeline.class, remap = false)
 public class MixinNewWorldRenderingPipeline {
   

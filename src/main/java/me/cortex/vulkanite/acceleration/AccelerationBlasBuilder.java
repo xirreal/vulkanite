@@ -383,11 +383,6 @@ public class AccelerationBlasBuilder {
     }
 
 
-
-    private void uploadTerrainGeometry(BuiltSectionMeshParts meshParts, VRef<VBuffer> buffer, long destOffset, VCmdBuff cmd) {
-        cmd.encodeDataUpload(context.memory, MemoryUtil.memAddress(meshParts.getVertexData().getDirectBuffer()), buffer, destOffset, meshParts.getVertexData().getLength());
-    }
-
     // Enqueues jobs of section blas builds
     // NOTE: This is on a different thread!
     public void enqueue(List<ChunkBuildOutput> batch) {

@@ -310,7 +310,7 @@ public class VmaAllocator {
 
             VmaAllocationInfo vai = VmaAllocationInfo.calloc();
             PointerBuffer pAllocation = stack.mallocPointer(1);
-            _CHECK_(vmaAllocateMemory(allocator, memReq, allocationCreateInfo, pAllocation, vai), "Failed to allocate memory for image");
+            _CHECK_(vmaAllocateMemoryForImage(allocator, image, allocationCreateInfo, pAllocation, vai), "Failed to allocate memory for image");
 
             long allocation = pAllocation.get(0);
             _CHECK_(vmaBindImageMemory(allocator, allocation, image), "failed to bind image memory");

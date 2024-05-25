@@ -112,7 +112,7 @@ public class MemoryManager {
                         nativeHandle = -1;
                     }
 
-                    System.out.println("Imported memory object: " + newMemoryObject + " with handle: " + nativeHandle + " and size: " + memorySize);
+                    System.out.println("Imported memory object: " + newMemoryObject + " with handle: " + nativeHandle + " and size: " + ((double)memorySize / 1024 / 1024) + "MB");
 
                     if (newMemoryObject == 0)
                         throw new IllegalStateException();

@@ -18,6 +18,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 
 import java.nio.ByteBuffer;
 
+import static me.cortex.vulkanite.lib.other.VUtil._CHECK_GL_ERROR_;
 import static org.lwjgl.opengl.GL11C.*;
 import static org.lwjgl.vulkan.VK10.*;
 
@@ -82,6 +83,7 @@ public abstract class MixinGlTexture extends MixinGlResource implements IVGImage
                 GL30.glTexSubImage3D(target, 0, 0, 0, 0, width, height, depth, format, pixelType, data);
                 break;
         }
+        _CHECK_GL_ERROR_();
     }
 
     @Overwrite
