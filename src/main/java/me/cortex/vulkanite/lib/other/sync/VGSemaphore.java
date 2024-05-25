@@ -35,9 +35,11 @@ public class VGSemaphore extends VSemaphore {
             }
         } else {
             int code = 0;
-            if ((code = LibC.INSTANCE.close((int) handleDescriptor)) != 0) {
-                System.err.println("STATE MIGHT BE BROKEN! Failed to close FD: " + code);
-                throw new IllegalStateException();
+            if (handleDescriptor != -1) {
+                if ((code = LibC.INSTANCE.close((int) handleDescriptor)) != 0) {
+                    System.err.println("STATE MIGHT BE BROKEN! Failed to close FD: " + code);
+                    throw new IllegalStateException();
+                }
             }
         }
         super.free();
