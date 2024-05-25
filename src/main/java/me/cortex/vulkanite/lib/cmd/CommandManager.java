@@ -8,6 +8,7 @@ import io.netty.util.internal.shaded.org.jctools.queues.MessagePassingQueue.Cons
 import it.unimi.dsi.fastutil.ints.Int2LongArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectSortedMap;
 import me.cortex.vulkanite.lib.base.VRef;
 import me.cortex.vulkanite.lib.other.sync.VFence;
 import me.cortex.vulkanite.lib.other.sync.VSemaphore;
@@ -141,9 +142,11 @@ public class CommandManager {
     }
 
     private static class Queue {
+        private record Submission(long t, VRef<VCmdBuff> ref) {}
+
         public final VkQueue queue;
         private final Int2LongArrayMap waitingFor = new Int2LongArrayMap();
-        private final Long2ObjectOpenHashMap<VRef<VCmdBuff>> submitted = new Long2ObjectOpenHashMap<>();
+        private final List<Submission> submitted = new ArrayList<>();
         public final VRef<VSemaphore> timelineSema;
 //        public final Deque<Long> frameTimestamps = new ArrayDeque<>(3);
         public AtomicLong timeline = new AtomicLong(1);
@@ -194,17 +197,13 @@ public class CommandManager {
             synchronized (submitted) {
                 long completedTimestamp = this.completedTimestamp.get();
 
-                submitted.forEach((time, cmdRef) -> {
-                    if (time <= completedTimestamp) {
-                        cmdRef.close();
+                submitted.removeIf((rec) -> {
+                    if (rec.t <= completedTimestamp) {
+                        rec.ref.close();
+                        return true;
                     }
+                    return false;
                 });
-
-                for (long key : submitted.keySet()) {
-                    if (key <= completedTimestamp) {
-                        submitted.remove(key);
-                    }
-                }
             }
         }
 
@@ -307,7 +306,7 @@ public class CommandManager {
             }
 
             synchronized (submitted) {
-                submitted.put(t, cmdBuff.addRef());
+                submitted.add(new Submission(t, cmdBuff.addRef()));
             }
 
             return t;

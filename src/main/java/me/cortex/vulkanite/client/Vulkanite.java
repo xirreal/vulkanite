@@ -9,6 +9,7 @@ import me.cortex.vulkanite.lib.descriptors.VDescriptorSetLayout;
 import me.jellysquid.mods.sodium.client.render.chunk.RenderSection;
 import me.jellysquid.mods.sodium.client.render.chunk.compile.ChunkBuildOutput;
 import net.minecraft.util.Util;
+import org.lwjgl.opengl.GL20;
 import org.lwjgl.vulkan.*;
 
 import java.util.ArrayList;
@@ -39,11 +40,10 @@ import static org.lwjgl.vulkan.VK10.vkDeviceWaitIdle;
 public class Vulkanite {
     public static final boolean IS_WINDOWS = Util.getOperatingSystem() == Util.OperatingSystem.WINDOWS;
 
-    public static boolean MEMORY_LEAK_TRACING = true;
-
     public static boolean IS_ENABLED = true;
     public static Vulkanite INSTANCE = new Vulkanite();
 
+    public final boolean IS_ZINK;
     private final VContext ctx;
     private final ArbitarySyncPointCallback fencedCallback = new ArbitarySyncPointCallback();
 
@@ -54,6 +54,18 @@ public class Vulkanite {
         ctx = createVulkanContext();
         // Hack: so that AccelerationManager can access Vulkanite.INSTANCE
         INSTANCE = this;
+
+        // Check GL_VENDOR to determine if Zink is being used
+        final var gl_vendor = GL20.glGetString(GL20.GL_VENDOR);
+        final var gl_renderer = GL20.glGetString(GL20.GL_RENDERER);
+        if (gl_vendor == null || gl_renderer == null) {
+            IS_ZINK = false;
+        } else {
+            IS_ZINK = gl_vendor.contains("Mesa") && gl_renderer.contains("zink");
+            if (IS_ZINK) {
+                System.out.println("Zink GL detected");
+            }
+        }
 
         //Fill in the shared index buffer with a large count so we (hopefully) dont have to worry about it anymore
         // SharedQuadVkIndexBuffer.getIndexBuffer(ctx, 30000);

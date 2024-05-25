@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static me.cortex.vulkanite.lib.other.VUtil._CHECK_;
+import static me.cortex.vulkanite.lib.other.VUtil._CHECK_GL_ERROR_;
 import static org.lwjgl.opengl.EXTMemoryObjectFD.GL_HANDLE_TYPE_OPAQUE_FD_EXT;
 import static org.lwjgl.opengl.EXTSemaphore.glGenSemaphoresEXT;
 import static org.lwjgl.opengl.EXTSemaphore.glIsSemaphoreEXT;
@@ -73,9 +74,8 @@ public class SyncManager {
 
             int glSemaphore = glGenSemaphoresEXT();
             glImportSemaphoreWin32HandleEXT(glSemaphore, GL_HANDLE_TYPE_OPAQUE_WIN32_EXT, pb.get(0));
+            _CHECK_GL_ERROR_();
             if (!glIsSemaphoreEXT(glSemaphore))
-                throw new IllegalStateException();
-            if (glGetError() != GL_NO_ERROR)
                 throw new IllegalStateException();
 
             return VGSemaphore.create(device, semaphore, glSemaphore, pb.get(0));
@@ -108,9 +108,8 @@ public class SyncManager {
 
             int glSemaphore = glGenSemaphoresEXT();
             glImportSemaphoreFdEXT(glSemaphore, GL_HANDLE_TYPE_OPAQUE_FD_EXT, fd.get(0));
+            _CHECK_GL_ERROR_();
             if (!glIsSemaphoreEXT(glSemaphore))
-                throw new IllegalStateException();
-            if (glGetError() != GL_NO_ERROR)
                 throw new IllegalStateException();
 
             return VGSemaphore.create(device, semaphore, glSemaphore, fd.get(0));

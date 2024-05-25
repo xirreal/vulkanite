@@ -1,5 +1,6 @@
 package me.cortex.vulkanite.lib.memory;
 
+import me.cortex.vulkanite.client.Vulkanite;
 import me.cortex.vulkanite.lib.base.VObject;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
@@ -27,11 +28,12 @@ public class VmaAllocator {
 
     private final long sharedBlockSize;
 
-    private final VkExportMemoryAllocateInfo exportMemoryAllocateInfo;
-
     private record ImageFormatQuery(int format, int imageType, int tiling, int usage, int flags) {}
     private record ImageFormatQueryResult(boolean supported, ImageFormatQuery updatedParams) {}
     private HashMap<ImageFormatQuery, ImageFormatQueryResult> formatSupportCache = new HashMap<>();
+
+    private final VkExportMemoryAllocateInfo exportMemoryAllocateInfo;
+    private final VkExportMemoryAllocateInfo exportDedicatedMemoryAllocateInfo;
 
     boolean testModifyFormatSupport(VkDevice device, VkImageCreateInfo imageCreateInfo) {
         var query = new ImageFormatQuery(imageCreateInfo.format(), imageCreateInfo.imageType(), imageCreateInfo.tiling(),
@@ -109,7 +111,44 @@ public class VmaAllocator {
 
             allocator = pAllocator.get(0);
 
-            int sharedPoolMemoryTypeIndex;
+            {
+                // Create the pool for dedicated allocation
+                var imageCreateInfo = VkImageCreateInfo.calloc(stack)
+                        .sType$Default()
+                        .imageType(VK_IMAGE_TYPE_2D)
+                        .format(VK_FORMAT_R8G8B8A8_UNORM)
+                        .extent(e -> e.set(512, 512, 1))
+                        .mipLevels(1)
+                        .arrayLayers(1)
+                        .samples(VK_SAMPLE_COUNT_1_BIT)
+                        .tiling(VK_IMAGE_TILING_OPTIMAL)
+                        .usage(VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                                | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT)
+                        .sharingMode(VK_SHARING_MODE_EXCLUSIVE)
+                        .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED);
+                var allocationCreateInfo = VmaAllocationCreateInfo.calloc(stack).usage(VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE)
+                        .requiredFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                IntBuffer pMemoryTypeIndex = stack.callocInt(1);
+                if (vmaFindMemoryTypeIndexForImageInfo(allocator, imageCreateInfo, allocationCreateInfo,
+                        pMemoryTypeIndex) != VK_SUCCESS) {
+                    throw new RuntimeException("Failed to find memory type index for shared pool");
+                }
+                int sharedDedicatedPoolMemoryTypeIndex = pMemoryTypeIndex.get(0);
+
+                exportDedicatedMemoryAllocateInfo = VkExportMemoryAllocateInfo.calloc()
+                        .sType$Default()
+                        .pNext(0)
+                        .handleTypes(sharedHandleType);
+
+                VmaPoolCreateInfo pci = VmaPoolCreateInfo.calloc(stack)
+                        .memoryTypeIndex(sharedDedicatedPoolMemoryTypeIndex)
+                        .pMemoryAllocateNext(exportDedicatedMemoryAllocateInfo.address());
+                PointerBuffer pb = stack.callocPointer(1);
+                if (vmaCreatePool(allocator, pci, pb) != VK_SUCCESS) {
+                    throw new RuntimeException("Failed to create sharedDedicatedPool");
+                }
+                sharedDedicatedPool = pb.get(0);
+            }
 
             {
                 var bufferCreateInfo = VkBufferCreateInfo.calloc(stack)
@@ -125,30 +164,24 @@ public class VmaAllocator {
                         pMemoryTypeIndex) != VK_SUCCESS) {
                     throw new RuntimeException("Failed to find memory type index for shared pool");
                 }
-                sharedPoolMemoryTypeIndex = pMemoryTypeIndex.get(0);
-            }
 
-            // This object is leaked, yes...
-            // But we should only have one allocator anyways
-            exportMemoryAllocateInfo = VkExportMemoryAllocateInfo.calloc()
-                    .sType$Default()
-                    .pNext(0)
-                    .handleTypes(sharedHandleType);
+                int sharedPoolMemoryTypeIndex = pMemoryTypeIndex.get(0);
 
-            VmaPoolCreateInfo pci = VmaPoolCreateInfo.calloc(stack)
-                    .memoryTypeIndex(sharedPoolMemoryTypeIndex)
-                    .pMemoryAllocateNext(exportMemoryAllocateInfo.address());
-            PointerBuffer pb = stack.callocPointer(1);
-            if (vmaCreatePool(allocator, pci, pb) != VK_SUCCESS) {
-                throw new RuntimeException("Failed to create sharedDedicatedPool");
-            }
-            sharedDedicatedPool = pb.get(0);
+                exportMemoryAllocateInfo = VkExportMemoryAllocateInfo.calloc()
+                        .sType$Default()
+                        .pNext(0)
+                        .handleTypes(sharedHandleType);
 
-            pci.blockSize(sharedBlockSize);
-            if (vmaCreatePool(allocator, pci, pb) != VK_SUCCESS) {
-                throw new RuntimeException("Failed to create sharedPool");
+                VmaPoolCreateInfo pci = VmaPoolCreateInfo.calloc(stack)
+                        .memoryTypeIndex(sharedPoolMemoryTypeIndex)
+                        .blockSize(sharedBlockSize)
+                        .pMemoryAllocateNext(exportMemoryAllocateInfo.address());
+                PointerBuffer pb = stack.callocPointer(1);
+                if (vmaCreatePool(allocator, pci, pb) != VK_SUCCESS) {
+                    throw new RuntimeException("Failed to create sharedPool");
+                }
+                sharedPool = pb.get(0);
             }
-            sharedPool = pb.get(0);
         }
     }
 
@@ -235,25 +268,54 @@ public class VmaAllocator {
         testModifyFormatSupport(device, imageCreateInfo);
         try (var stack = stackPush()) {
             LongBuffer pb = stack.callocLong(1);
-            _CHECK_(vkCreateImage(device, imageCreateInfo, null, pb), "Failed to create VkBuffer");
+            _CHECK_(vkCreateImage(device, imageCreateInfo, null, pb), "Failed to create VkImage");
             long image = pb.get(0);
 
             var memReq = VkMemoryRequirements.calloc(stack);
             vkGetImageMemoryRequirements(device, image, memReq);
 
-            allocationCreateInfo.flags(VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT)
-                    .pool(sharedDedicatedPool)
-                    .memoryTypeBits(memReq.memoryTypeBits());
+            boolean dedicated = memReq.size() > sharedBlockSize;
+            if (Vulkanite.INSTANCE.IS_ZINK) {
+                dedicated = false;
+            }
+
+            if (!dedicated) {
+                var dedicatedMemReq = VkMemoryDedicatedRequirements.calloc(stack)
+                        .sType$Default()
+                        .pNext(0);
+                var memReq2 = VkMemoryRequirements2.calloc(stack)
+                        .sType$Default()
+                        .pNext(dedicatedMemReq.address());
+                vkGetImageMemoryRequirements2(device, VkImageMemoryRequirementsInfo2
+                        .calloc(stack)
+                        .sType$Default()
+                        .image(image), memReq2);
+                if (Vulkanite.INSTANCE.IS_ZINK) {
+                    if (dedicatedMemReq.requiresDedicatedAllocation()) {
+                        throw new RuntimeException("Zink does not support importing dedicated memory, however the Vulkan implementation demands it");
+                    }
+                } else {
+                    dedicated = dedicatedMemReq.prefersDedicatedAllocation() || dedicatedMemReq.requiresDedicatedAllocation();
+                }
+            }
+
+            if (dedicated) {
+                allocationCreateInfo.flags(VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT);
+                allocationCreateInfo.pool(sharedDedicatedPool);
+            } else {
+                allocationCreateInfo.pool(sharedPool);
+            }
+
+            allocationCreateInfo.memoryTypeBits(memReq.memoryTypeBits());
 
             VmaAllocationInfo vai = VmaAllocationInfo.calloc();
             PointerBuffer pAllocation = stack.mallocPointer(1);
-            _CHECK_(
-                    vmaAllocateMemoryForImage(allocator, image, allocationCreateInfo, pAllocation, vai),
-                    "Failed to allocate memory for image");
+            _CHECK_(vmaAllocateMemory(allocator, memReq, allocationCreateInfo, pAllocation, vai), "Failed to allocate memory for image");
+
             long allocation = pAllocation.get(0);
             _CHECK_(vmaBindImageMemory(allocator, allocation, image), "failed to bind image memory");
 
-            return new SharedImageAllocation(image, allocation, vai, true);
+            return new SharedImageAllocation(image, allocation, vai, dedicated);
         }
     }
 

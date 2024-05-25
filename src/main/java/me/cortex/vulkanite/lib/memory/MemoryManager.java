@@ -109,7 +109,10 @@ public class MemoryManager {
                         glImportMemoryFdEXT(newMemoryObject, memorySize,
                                 GL_HANDLE_TYPE_OPAQUE_FD_EXT, (int) nativeHandle);
                         _CHECK_GL_ERROR_();
+                        nativeHandle = -1;
                     }
+
+                    System.out.println("Imported memory object: " + newMemoryObject + " with handle: " + nativeHandle + " and size: " + memorySize);
 
                     if (newMemoryObject == 0)
                         throw new IllegalStateException();
@@ -141,10 +144,12 @@ public class MemoryManager {
                              throw new IllegalStateException();
                          }
                     } else {
-                        int code = 0;
-                        if ((code = LibC.INSTANCE.close((int) tracked.desc.handle)) != 0) {
-                            System.err.println("STATE MIGHT BE BROKEN! Failed to close FD: " + code);
-                            throw new IllegalStateException();
+                        if (tracked.desc.handle != -1) {
+                            int code = 0;
+                            if ((code = LibC.INSTANCE.close((int) tracked.desc.handle)) != 0) {
+                                System.err.println("STATE MIGHT BE BROKEN! Failed to close FD: " + code);
+                                throw new IllegalStateException();
+                            }
                         }
                     }
                     MEMORY_TO_HANDLES.remove(memory);
@@ -200,17 +205,16 @@ public class MemoryManager {
             var createInfo = VkImageCreateInfo
                     .calloc(stack)
                     .sType$Default()
-                    .usage(usage)
                     .pNext(VkExternalMemoryImageCreateInfo.calloc(stack)
                             .sType$Default()
                             .handleTypes(EXTERNAL_MEMORY_HANDLE_TYPE))
+                    .usage(usage)
                     .format(vkFormat)
                     .imageType(vkImageType)
                     .mipLevels(mipLevels)
                     .arrayLayers(1)
                     .tiling(VK_IMAGE_TILING_OPTIMAL)
                     .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED)
-                    .usage(usage)
                     .samples(VK_SAMPLE_COUNT_1_BIT);
             createInfo.extent().width(width).height(height).depth(depth);
 
@@ -222,6 +226,7 @@ public class MemoryManager {
             int memoryObject = ExternalMemoryTracker.acquire(alloc, device, alloc.isDedicated());
 
             int glId = glCreateTextures(glImageType);
+            glTextureParameteri(glId, GL_TEXTURE_TILING_EXT, GL_OPTIMAL_TILING_EXT);
 
             switch(glImageType) {
                 case GL_TEXTURE_1D:

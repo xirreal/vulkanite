@@ -428,7 +428,7 @@ public class VulkanPipeline {
         out.close();
 
         VRegistry.INSTANCE.threadLocalCollect();
-        System.out.println(VRegistry.INSTANCE.dumpStats());
+        // System.out.println(VRegistry.INSTANCE.dumpStats());
     }
 
     public void destory() {
