@@ -94,25 +94,28 @@ public class SyncManager {
                     null, res));
             long semaphore = res.get(0);
 
-            IntBuffer fd = stack.callocInt(1);
+            IntBuffer fdPtr = stack.callocInt(1);
             _CHECK_(vkGetSemaphoreFdKHR(device,
                     VkSemaphoreGetFdInfoKHR.calloc(stack)
                             .sType$Default()
                             .semaphore(semaphore)
                             .handleType(EXTERNAL_SEMAPHORE_TYPE),
-                    fd));
+                            fdPtr));
 
-            if (fd.get(0)== 0) {
+            int fd = fdPtr.get(0);
+
+            if (fd == 0) {
                 throw new IllegalStateException();
             }
 
             int glSemaphore = glGenSemaphoresEXT();
-            glImportSemaphoreFdEXT(glSemaphore, GL_HANDLE_TYPE_OPAQUE_FD_EXT, fd.get(0));
+            glImportSemaphoreFdEXT(glSemaphore, GL_HANDLE_TYPE_OPAQUE_FD_EXT, fd);
             _CHECK_GL_ERROR_();
             if (!glIsSemaphoreEXT(glSemaphore))
                 throw new IllegalStateException();
 
-            return VGSemaphore.create(device, semaphore, glSemaphore, fd.get(0));
+            fd = -1;
+            return VGSemaphore.create(device, semaphore, glSemaphore, fd);
         }
     }
 
