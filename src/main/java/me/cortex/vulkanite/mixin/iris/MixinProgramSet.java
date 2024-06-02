@@ -2,11 +2,10 @@ package me.cortex.vulkanite.mixin.iris;
 
 import me.cortex.vulkanite.compat.IGetRaytracingSource;
 import me.cortex.vulkanite.compat.RaytracingShaderSource;
-import net.coderbot.iris.shaderpack.ProgramSet;
-import net.coderbot.iris.shaderpack.ProgramSource;
-import net.coderbot.iris.shaderpack.ShaderPack;
-import net.coderbot.iris.shaderpack.ShaderProperties;
-import net.coderbot.iris.shaderpack.include.AbsolutePackPath;
+import net.irisshaders.iris.shaderpack.ShaderPack;
+import net.irisshaders.iris.shaderpack.include.AbsolutePackPath;
+import net.irisshaders.iris.shaderpack.programs.ProgramSet;
+import net.irisshaders.iris.shaderpack.properties.ShaderProperties;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;

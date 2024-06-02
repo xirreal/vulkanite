@@ -1,6 +1,6 @@
 package me.cortex.vulkanite.mixin.iris;
 
-import net.coderbot.iris.uniforms.CommonUniforms;
+import net.irisshaders.iris.uniforms.CommonUniforms;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Invoker;
 

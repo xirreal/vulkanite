@@ -5,10 +5,10 @@ import me.cortex.vulkanite.client.Vulkanite;
 import me.cortex.vulkanite.compat.IVGBuffer;
 import me.cortex.vulkanite.lib.base.VRef;
 import me.cortex.vulkanite.lib.memory.VGBuffer;
-import net.coderbot.iris.gl.IrisRenderSystem;
-import net.coderbot.iris.gl.buffer.ShaderStorageBuffer;
-import net.coderbot.iris.gl.buffer.ShaderStorageBufferHolder;
-import net.coderbot.iris.gl.buffer.ShaderStorageInfo;
+import net.irisshaders.iris.gl.IrisRenderSystem;
+import net.irisshaders.iris.gl.buffer.ShaderStorageBuffer;
+import net.irisshaders.iris.gl.buffer.ShaderStorageBufferHolder;
+import net.irisshaders.iris.gl.buffer.ShaderStorageInfo;
 import org.lwjgl.opengl.GL43C;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
@@ -22,7 +22,7 @@ import static org.lwjgl.vulkan.VK10.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 public class MixinShaderStorageBufferHolder {
     @Unique private ShaderStorageInfo storageInfo;
 
-    @Redirect(method = "lambda$new$0", at = @At(value = "INVOKE", target = "Lnet/coderbot/iris/gl/buffer/ShaderStorageInfo;relative()Z"))
+    @Redirect(method = "lambda$new$0", at = @At(value = "INVOKE", target = "Lnet/irisshaders/iris/gl/buffer/ShaderStorageInfo;relative()Z"))
     private boolean alwaysReturnTrue(ShaderStorageInfo instance) {
         this.storageInfo = instance;
         return true;
@@ -32,7 +32,7 @@ public class MixinShaderStorageBufferHolder {
         return Vulkanite.INSTANCE.getCtx().memory.createSharedBuffer(size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     }
 
-    @Redirect(method = "lambda$new$0", at = @At(value = "INVOKE", target = "Lnet/coderbot/iris/gl/buffer/ShaderStorageBuffer;resizeIfRelative(II)V"))
+    @Redirect(method = "lambda$new$0", at = @At(value = "INVOKE", target = "Lnet/irisshaders/iris/gl/buffer/ShaderStorageBuffer;resizeIfRelative(II)V"))
     private void redirectSizeAllocation(ShaderStorageBuffer instance, int width, int height) {
         if (storageInfo.relative()) {
             instance.resizeIfRelative(width, height);

@@ -8,16 +8,16 @@ import me.cortex.vulkanite.compat.*;
 import me.cortex.vulkanite.lib.base.VContext;
 import me.cortex.vulkanite.lib.base.VRef;
 import me.cortex.vulkanite.lib.memory.VGImage;
-import net.coderbot.iris.gl.buffer.ShaderStorageBuffer;
-import net.coderbot.iris.gl.texture.TextureAccess;
-import net.coderbot.iris.gl.buffer.ShaderStorageBufferHolder;
-import net.coderbot.iris.mixin.LevelRendererAccessor;
-import net.coderbot.iris.pipeline.CustomTextureManager;
-import net.coderbot.iris.pipeline.newshader.NewWorldRenderingPipeline;
-import net.coderbot.iris.rendertarget.RenderTargets;
-import net.coderbot.iris.shaderpack.ProgramSet;
-import net.coderbot.iris.shaderpack.texture.TextureStage;
-import net.coderbot.iris.uniforms.CelestialUniforms;
+import net.irisshaders.iris.gl.buffer.ShaderStorageBuffer;
+import net.irisshaders.iris.gl.texture.TextureAccess;
+import net.irisshaders.iris.gl.buffer.ShaderStorageBufferHolder;
+import net.irisshaders.iris.mixin.LevelRendererAccessor;
+import net.irisshaders.iris.pipeline.CustomTextureManager;
+import net.irisshaders.iris.pipeline.IrisRenderingPipeline;
+import net.irisshaders.iris.shaderpack.programs.ProgramSet;
+import net.irisshaders.iris.shaderpack.texture.TextureStage;
+import net.irisshaders.iris.targets.RenderTargets;
+import net.irisshaders.iris.uniforms.CelestialUniforms;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.MinecraftClient;
 import org.spongepowered.asm.mixin.Final;
@@ -33,8 +33,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-@Mixin(value = NewWorldRenderingPipeline.class, remap = false)
-public class MixinNewWorldRenderingPipeline {
+@Mixin(value = IrisRenderingPipeline.class, remap = false)
+public class MixinIrisRenderingPipeline {
   
     @Shadow @Final private RenderTargets renderTargets;
     @Shadow @Final private CustomTextureManager customTextureManager;

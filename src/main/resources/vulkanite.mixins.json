@@ -9,7 +9,7 @@
     "iris.MixinGlResource",
     "iris.MixinGlTexture",
     "iris.MixinNativeImageBackedTexture",
-    "iris.MixinNewWorldRenderingPipeline",
+    "iris.MixinIrisRenderingPipeline",
     "iris.MixinPackRenderTargetDirectives",
     "iris.MixinPBRAtlasTexture",
     "iris.MixinProgramSet",

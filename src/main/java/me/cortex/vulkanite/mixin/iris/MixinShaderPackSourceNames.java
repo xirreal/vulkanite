@@ -1,7 +1,7 @@
 package me.cortex.vulkanite.mixin.iris;
 
 import com.google.common.collect.ImmutableList;
-import net.coderbot.iris.shaderpack.include.ShaderPackSourceNames;
+import net.irisshaders.iris.shaderpack.include.ShaderPackSourceNames;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;

@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.2-SNAPSHOT'
+    id 'fabric-loom' version '1.6-SNAPSHOT'
     id 'maven-publish'
 }
 
@@ -38,8 +38,8 @@ dependencies {
     modImplementation("net.fabricmc.fabric-api:fabric-rendering-data-attachment-v1:0.3.38+73761d2e9a")
     modImplementation(fabricApi.module("fabric-resource-loader-v0", project.fabric_version))
 
-    modImplementation "maven.modrinth:sodium:mc1.20.2-0.5.5"
-    modImplementation "maven.modrinth:iris:1.6.14+1.20.2"
+    modImplementation "maven.modrinth:sodium:mc1.20.6-0.5.8"
+    modImplementation "maven.modrinth:iris:1.7.0+1.20.6"
 
     modRuntimeOnly 'org.anarres:jcpp:1.4.14'
     modRuntimeOnly 'io.github.douira:glsl-transformer:2.0.0-pre13'
@@ -106,7 +106,7 @@ publishing {
 
 import org.gradle.internal.os.OperatingSystem
 
-project.ext.lwjglVersion = "3.3.1"
+project.ext.lwjglVersion = "3.3.3"
 
 switch (OperatingSystem.current()) {
     case OperatingSystem.LINUX:
@@ -134,23 +134,23 @@ dependencies {
     include(implementation("org.lwjgl:lwjgl-shaderc"))
     include(implementation("org.lwjgl:lwjgl-spvc"))
 
-    include(runtimeOnly("org.lwjgl:lwjgl-meshoptimizer:$lwjglVersion:$lwjglNatives"))
-    include(runtimeOnly("org.lwjgl:lwjgl-vma:$lwjglVersion:$lwjglNatives"))
-    include(runtimeOnly("org.lwjgl:lwjgl-shaderc:$lwjglVersion:$lwjglNatives"))
-    include(runtimeOnly("org.lwjgl:lwjgl-spvc:$lwjglVersion:$lwjglNatives"))
+    include(runtimeOnly("org.lwjgl:lwjgl-meshoptimizer:$lwjglVersion:natives-linux"))
+    include(runtimeOnly("org.lwjgl:lwjgl-vma:$lwjglVersion:natives-linux"))
+    include(runtimeOnly("org.lwjgl:lwjgl-shaderc:$lwjglVersion:natives-linux"))
+    include(runtimeOnly("org.lwjgl:lwjgl-spvc:$lwjglVersion:natives-linux"))
 
-    include(implementation("org.lwjgl:lwjgl-meshoptimizer:$lwjglVersion:$lwjglNatives"))
-    include(implementation("org.lwjgl:lwjgl-vma:$lwjglVersion:$lwjglNatives"))
-    include(implementation("org.lwjgl:lwjgl-shaderc:$lwjglVersion:$lwjglNatives"))
-    include(implementation("org.lwjgl:lwjgl-spvc:$lwjglVersion:$lwjglNatives"))
+    include(implementation("org.lwjgl:lwjgl-meshoptimizer:$lwjglVersion:natives-linux"))
+    include(implementation("org.lwjgl:lwjgl-vma:$lwjglVersion:natives-linux"))
+    include(implementation("org.lwjgl:lwjgl-shaderc:$lwjglVersion:natives-linux"))
+    include(implementation("org.lwjgl:lwjgl-spvc:$lwjglVersion:natives-linux"))
 
 
     implementation "org.lwjgl:lwjgl"
     implementation "org.lwjgl:lwjgl-glfw"
     implementation "org.lwjgl:lwjgl-opengl"
-    runtimeOnly "org.lwjgl:lwjgl::$lwjglNatives"
-    runtimeOnly "org.lwjgl:lwjgl-glfw::$lwjglNatives"
-    runtimeOnly "org.lwjgl:lwjgl-opengl::$lwjglNatives"
+    runtimeOnly "org.lwjgl:lwjgl::natives-linux"
+    runtimeOnly "org.lwjgl:lwjgl-glfw::natives-linux"
+    runtimeOnly "org.lwjgl:lwjgl-opengl::natives-linux"
 }
 
 

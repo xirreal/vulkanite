@@ -1,6 +1,6 @@
 package me.cortex.vulkanite.lib.other;
 
-import net.coderbot.iris.gl.texture.InternalTextureFormat;
+import net.irisshaders.iris.gl.texture.InternalTextureFormat;
 
 import static org.lwjgl.opengl.GL11C.GL_RGB8;
 import static org.lwjgl.opengl.GL11C.GL_RGBA16;

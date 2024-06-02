@@ -25,12 +25,12 @@ import me.cortex.vulkanite.lib.pipeline.VRaytracePipeline;
 import me.cortex.vulkanite.lib.shader.reflection.ShaderReflection;
 import me.cortex.vulkanite.mixin.iris.MixinCelestialUniforms;
 import me.cortex.vulkanite.mixin.iris.MixinCommonUniforms;
-import net.coderbot.iris.gl.buffer.ShaderStorageBuffer;
-import net.coderbot.iris.texture.pbr.PBRTextureHolder;
-import net.coderbot.iris.texture.pbr.PBRTextureManager;
-import net.coderbot.iris.uniforms.CapturedRenderingState;
-import net.coderbot.iris.uniforms.CommonUniforms;
-import net.coderbot.iris.uniforms.SystemTimeUniforms;
+import net.irisshaders.iris.gl.buffer.ShaderStorageBuffer;
+import net.irisshaders.iris.texture.pbr.PBRTextureHolder;
+import net.irisshaders.iris.texture.pbr.PBRTextureManager;
+import net.irisshaders.iris.uniforms.CapturedRenderingState;
+import net.irisshaders.iris.uniforms.CommonUniforms;
+import net.irisshaders.iris.uniforms.SystemTimeUniforms;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.texture.AbstractTexture;
@@ -102,12 +102,12 @@ public class VulkanPipeline {
             this.blockAtlasNormalView = new SharedImageViewTracker(ctx, () -> {
                 AbstractTexture blockAtlas = MinecraftClient.getInstance().getTextureManager().getTexture(new Identifier("minecraft", "textures/atlas/blocks.png"));
                 PBRTextureHolder holder = PBRTextureManager.INSTANCE.getOrLoadHolder(blockAtlas.getGlId());//((TextureAtlasExtension)blockAtlas).getPBRHolder()
-                return ((IVGImage) holder.getNormalTexture()).getVGImage();
+                return ((IVGImage) holder.normalTexture()).getVGImage();
             });
             this.blockAtlasSpecularView = new SharedImageViewTracker(ctx, () -> {
                 AbstractTexture blockAtlas = MinecraftClient.getInstance().getTextureManager().getTexture(new Identifier("minecraft", "textures/atlas/blocks.png"));
                 PBRTextureHolder holder = PBRTextureManager.INSTANCE.getOrLoadHolder(blockAtlas.getGlId());//((TextureAtlasExtension)blockAtlas).getPBRHolder()
-                return ((IVGImage) holder.getSpecularTexture()).getVGImage();
+                return ((IVGImage) holder.specularTexture()).getVGImage();
             });
             this.placeholderSpecular = ctx.memory.createImage2D(4, 4, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
             this.placeholderSpecularView = VImageView.create(ctx, placeholderSpecular);
