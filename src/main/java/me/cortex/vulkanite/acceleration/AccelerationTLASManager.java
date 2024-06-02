@@ -3,16 +3,16 @@ package me.cortex.vulkanite.acceleration;
 //TLAS manager, ingests blas build requests and manages builds and syncs the tlas
 
 import com.mojang.blaze3d.systems.RenderSystem;
-import me.cortex.vulkanite.client.Vulkanite;
+import it.unimi.dsi.fastutil.ints.IntArrayFIFOQueue;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import me.cortex.vulkanite.lib.base.VContext;
+import me.cortex.vulkanite.lib.base.VObject;
 import me.cortex.vulkanite.lib.base.VRef;
 import me.cortex.vulkanite.lib.cmd.VCmdBuff;
-import me.cortex.vulkanite.lib.cmd.VCommandPool;
 import me.cortex.vulkanite.lib.descriptors.*;
 import me.cortex.vulkanite.lib.memory.VAccelerationStructure;
 import me.cortex.vulkanite.lib.memory.VBuffer;
-import me.cortex.vulkanite.lib.other.sync.VFence;
-import me.cortex.vulkanite.lib.other.sync.VSemaphore;
 import me.jellysquid.mods.sodium.client.render.chunk.RenderSection;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.RenderLayer;
@@ -37,12 +37,24 @@ public class AccelerationTLASManager {
     private final TLASSectionManager buildDataManager = new TLASSectionManager();
     private final VContext context;
     private final int queue;
+    private List<Pair<RenderLayer, BufferBuilder.BuiltBuffer>> entityData;
 
     public AccelerationTLASManager(VContext context, int queue) {
         this.context = context;
         this.queue = queue;
         this.buildDataManager.resizeBindlessSet(0);
         this.entityBlasBuilder = new EntityBlasBuilder(context);
+    }
+
+    private static int roundUpPow2(int v) {
+        v--;
+        v |= v >> 1;
+        v |= v >> 2;
+        v |= v >> 4;
+        v |= v >> 8;
+        v |= v >> 16;
+        v++;
+        return v;
     }
 
     // Returns a sync semaphore to chain in the next command submit
@@ -56,12 +68,9 @@ public class AccelerationTLASManager {
         }
     }
 
-
-    private List<Pair<RenderLayer, BufferBuilder.BuiltBuffer>> entityData;
     public void setEntityData(List<Pair<RenderLayer, BufferBuilder.BuiltBuffer>> data) {
         this.entityData = data;
     }
-
 
     public void removeSection(RenderSection section) {
         buildDataManager.remove(section);
@@ -81,28 +90,35 @@ public class AccelerationTLASManager {
             // this is done for performance reasons when updating (adding/removing) sections
 
             VkAccelerationStructureGeometryKHR geometry = VkAccelerationStructureGeometryKHR.calloc(stack);
-            int instances = buildDataManager.sectionCount();
 
-            Pair<VRef<VAccelerationStructure>, VRef<VBuffer>> entityBuild;
             if (entityData != null) {
-                entityBuild = entityBlasBuilder.buildBlas(entityData, cmd);
-            } else {
-                entityBuild = null;
+                var entityBuild = entityBlasBuilder.buildBlas(entityData, cmd);
+
+                for (var entityBatch : entityBuild) {
+                    if (entityBatch.offsets().isEmpty()) {
+                        continue;
+                    }
+
+                    var entityASI = VkAccelerationStructureInstanceKHR.calloc(stack)
+                            .mask(~0)
+                            .instanceShaderBindingTableRecordOffset(1);
+                    entityASI.transform().matrix(new Matrix4x3f().getTransposed(stack.mallocFloat(12)));
+
+                    buildDataManager.addEphemeralInstance(cmd, entityASI, entityBatch.structure(), entityBatch.geometry(), entityBatch.offsets());
+                    entityBatch.geometry().close();
+                    entityBatch.structure().close();
+                }
             }
 
-            VkAccelerationStructureInstanceKHR extra = null;
-            if (entityBuild != null) {
-                extra = VkAccelerationStructureInstanceKHR.calloc(stack);
-                extra.mask(~0)
-                        .instanceCustomIndex(0)
-                        .instanceShaderBindingTableRecordOffset(1)
-                        .accelerationStructureReference(entityBuild.getLeft().get().deviceAddress);
-                extra.transform().matrix(new Matrix4x3f().getTransposed(stack.mallocFloat(12)));
-                buildDataManager.descUpdateJobs.add(new TLASSectionManager.DescUpdateJob(0, 0, entityBuild.getRight(), List.of(0L)));
-                instances++;
-            }
+            // getInstanceBuffer also builds / updates the geometry desc set
+            var rets = buildDataManager.getInstanceBuffer();
+            var instanceBuffer = rets.getLeft();
+            int numInstances = rets.getRight();
 
-            var instanceBuffer = buildDataManager.getInstanceBuffer(extra);
+            for (var holderRef : buildDataManager.activeSections.values()) {
+                // Let the cmdbuf manage the lifetime of the holder & desc set entry
+                cmd.moveRefGeneric(holderRef.addRefGeneric());
+            }
 
             geometry.sType$Default()
                     .geometryType(VK_GEOMETRY_TYPE_INSTANCES_KHR)
@@ -118,7 +134,6 @@ public class AccelerationTLASManager {
                     .data()
                     .deviceAddress(instanceBuffer.get().deviceAddress());
 
-
             // TLAS always rebuild & PREFER_FAST_TRACE according to Nvidia
             var buildInfo = VkAccelerationStructureBuildGeometryInfoKHR.calloc(1, stack)
                     .sType$Default()
@@ -132,7 +147,7 @@ public class AccelerationTLASManager {
                     .calloc(stack)
                     .sType$Default();
 
-            int[] instanceCounts = new int[]{instances};
+            int[] instanceCounts = new int[]{numInstances};
             vkGetAccelerationStructureBuildSizesKHR(
                     context.device,
                     VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
@@ -182,6 +197,50 @@ public class AccelerationTLASManager {
         }
     }
 
+    public VRef<VDescriptorSet> getGeometrySet() {
+        return buildDataManager.geometryBufferDescSet.addRef();
+    }
+
+    public VRef<VDescriptorSetLayout> getGeometryLayout() {
+        return buildDataManager.geometryBufferSetLayout.addRef();
+    }
+
+    private static final class TlasPointerArena {
+        private final BitSet vacant;
+        public int maxIndex = 0;
+
+        private TlasPointerArena(int size) {
+            size *= 3;
+            vacant = new BitSet(size);
+            vacant.set(0, size);
+        }
+
+        public int allocate(int count) {
+            int pos = vacant.nextSetBit(0);
+            outer:
+            while (pos != -1) {
+                for (int offset = 1; offset < count; offset++) {
+                    if (!vacant.get(offset + pos)) {
+                        pos = vacant.nextSetBit(offset + pos + 1);
+                        continue outer;
+                    }
+                }
+                break;
+            }
+            if (pos == -1) {
+                throw new IllegalStateException();
+            }
+            vacant.clear(pos, pos + count);
+            maxIndex = Math.max(maxIndex, pos + count);
+            return pos;
+        }
+
+        public void free(int pos, int count) {
+            vacant.set(pos, pos + count);
+
+            maxIndex = vacant.previousClearBit(maxIndex) + 1;
+        }
+    }
 
     // Manages entries in the VkAccelerationStructureInstanceKHR buffer, ment to
     // reuse as much as possible and be very efficient
@@ -195,131 +254,149 @@ public class AccelerationTLASManager {
         // Needs a gpu buffer for the instance data, this can be reused
         // private VkAccelerationStructureInstanceKHR.Buffer buffer;
 
-        private VkAccelerationStructureInstanceKHR.Buffer instances = VkAccelerationStructureInstanceKHR.calloc(30000);
-        private int[] instance2pointer = new int[30000];
-        private int[] pointer2instance = new int[30000];
-        private BitSet free = new BitSet(30000);// The reason this is needed is to give non used instance ids
-        private int count;
+        private final IntArrayFIFOQueue freeIds = new IntArrayFIFOQueue();
+        private int maxInstances = 0;
+        private VkAccelerationStructureInstanceKHR.Buffer instances = null;
+        private int count = 0;
+        // This maps each location in the instance buffer to an id
+        private int[] loc2id = new int[maxInstances];
+        // This maps each id to a location in the instance buffer
+        private int[] id2loc = new int[maxInstances];
 
         public TLASGeometryManager() {
-            free.set(0, instance2pointer.length);
+            resize(32768);
         }
 
-        // TODO: make the instances buffer, gpu permenent then stream updates instead of
-        // uploading per frame
-        public VRef<VBuffer> getInstanceBuffer(VkAccelerationStructureInstanceKHR addin) {
-            long size = (long) VkAccelerationStructureInstanceKHR.SIZEOF * count;
-            long newSize = size + (addin==null?0:VkAccelerationStructureInstanceKHR.SIZEOF);
-            if (newSize == 0) {
-                System.err.println("Instance buffer has a new size of 0, something is wrong.");
-                newSize = VkAccelerationStructureInstanceKHR.SIZEOF;
+        public void resize(int newSize) {
+            if (newSize > maxInstances) {
+                newSize = roundUpPow2(newSize);
+
+                // Resize the instance buffer
+                VkAccelerationStructureInstanceKHR.Buffer newBuffer = VkAccelerationStructureInstanceKHR
+                        .calloc(newSize);
+                if (instances != null) {
+                    newBuffer.put(instances);
+                    newBuffer.rewind();
+                    instances.free();
+                }
+                instances = newBuffer;
+
+                // Add new ids to the free list
+                for (int i = maxInstances; i < newSize; i++) {
+                    freeIds.enqueue(i);
+                }
+
+                // Resize the id mapping arrays
+                int[] newLoc2Id = new int[newSize];
+                int[] newId2Loc = new int[newSize];
+                System.arraycopy(loc2id, 0, newLoc2Id, 0, count);
+                System.arraycopy(id2loc, 0, newId2Loc, 0, count);
+                loc2id = newLoc2Id;
+                id2loc = newId2Loc;
+
+                maxInstances = newSize;
             }
-            var data = context.memory.createBuffer(newSize,
+        }
+
+        protected int alloc(VkAccelerationStructureInstanceKHR instance) {
+            // Increment the count
+            count++;
+            resize(count);
+
+            // Get a free id
+            int id = freeIds.dequeueInt();
+
+            // The instances buffer is dense
+            // Allocation always append to the end
+            loc2id[count - 1] = id;
+            id2loc[id] = count - 1;
+
+            // Copy the instance to the buffer
+            MemoryUtil.memCopy(instance.address(), instances.address(count - 1), VkAccelerationStructureInstanceKHR.SIZEOF);
+
+            return id;
+        }
+
+        protected void free(int id) {
+            if (id < 0) {
+                throw new IllegalArgumentException("Invalid id");
+            }
+
+            freeIds.enqueue(id);
+
+            int loc = id2loc[id];
+            id2loc[id] = -1;
+            loc2id[loc] = -1;
+
+            count--;
+            if (loc != count) {
+                // Move the last element to the hole
+                int lastId = loc2id[count];
+                loc2id[count] = -1;
+                loc2id[loc] = lastId;
+                id2loc[lastId] = loc;
+                MemoryUtil.memCopy(instances.address(count), instances.address(loc),
+                        VkAccelerationStructureInstanceKHR.SIZEOF);
+            }
+        }
+
+        private final List<VkAccelerationStructureInstanceKHR> ephemeralInstances = new ArrayList<>();
+
+        public void addEphemeralInstance(VkAccelerationStructureInstanceKHR asi) {
+            var newASI = VkAccelerationStructureInstanceKHR.calloc();
+            newASI.set(asi);
+            ephemeralInstances.add(newASI);
+        }
+
+        public Pair<VRef<VBuffer>, Integer> getInstanceBuffer() {
+            int count = this.count + ephemeralInstances.size();
+
+            long size = VkAccelerationStructureInstanceKHR.SIZEOF * (long) count;
+            if (size == 0) {
+                size = VkAccelerationStructureInstanceKHR.SIZEOF;
+            }
+            var data = context.memory.createBuffer(size,
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT
                             | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                             | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                     VK_MEMORY_HEAP_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
                     0, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
             data.get().setDebugUtilsObjectName("TLAS Instance Buffer");
+
+            long persistentSize = VkAccelerationStructureInstanceKHR.SIZEOF * (long) this.count;
             long ptr = data.get().map();
-            if (addin != null) {
-                MemoryUtil.memCopy(addin.address(), ptr, VkAccelerationStructureInstanceKHR.SIZEOF);
-                ptr += VkAccelerationStructureInstanceKHR.SIZEOF;
+            if (persistentSize > 0) {
+                MemoryUtil.memCopy(this.instances.address(0), ptr, persistentSize);
             }
-            MemoryUtil.memCopy(this.instances.address(0), ptr, size);
+
+            ptr = ptr + persistentSize;
+            for (var asi : ephemeralInstances) {
+                MemoryUtil.memCopy(asi.address(), ptr, VkAccelerationStructureInstanceKHR.SIZEOF);
+                ptr += VkAccelerationStructureInstanceKHR.SIZEOF;
+                asi.free();
+            }
+            ephemeralInstances.clear();
 
             data.get().unmap();
             data.get().flush();
 
-            return data;
+            return new Pair<>(data, count);
         }
-
-        public int sectionCount() {
-            return count;
-        }
-
-        protected int alloc() {
-            int id = free.nextSetBit(0);
-
-            free.clear(id);
-
-            // Update the map
-            instance2pointer[id] = count;
-            pointer2instance[count] = id;
-
-            // Increment the count
-            count++;
-
-            return id;
-        }
-
-        protected void free(int id) {
-            free.set(id);
-
-            count--;
-            if (instance2pointer[id] == count) {
-                // We are at the end of the pointer list, so just decrement and be done
-                instance2pointer[id] = -1;
-                pointer2instance[count] = -1;
-            } else {
-                // TODO: CHECK THIS IS CORRECT
-
-                // We need to remove the pointer, and fill it in with the last element in the
-                // pointer array, updating the mapping of the moved
-                int ptrId = instance2pointer[id];
-                instance2pointer[id] = -1;
-
-                // I feel like this should be pointer2instance = pointer2instance
-                pointer2instance[ptrId] = pointer2instance[count];
-
-                // move over the ending data to the missing hole point
-                MemoryUtil.memCopy(instances.address(count), instances.address(ptrId),
-                        VkAccelerationStructureInstanceKHR.SIZEOF);
-
-                instance2pointer[pointer2instance[count]] = ptrId;
-            }
-        }
-
-        protected void update(int id, VkAccelerationStructureInstanceKHR data) {
-            MemoryUtil.memCopy(data.address(), instances.address(instance2pointer[id]),
-                    VkAccelerationStructureInstanceKHR.SIZEOF);
-        }
-    }
-
-    private static int roundUpPow2(int v) {
-        v--;
-        v |= v >> 1;
-        v |= v >> 2;
-        v |= v >> 4;
-        v |= v >> 8;
-        v |= v >> 16;
-        v++;
-        return v;
     }
 
     private final class TLASSectionManager extends TLASGeometryManager {
         private final TlasPointerArena arena = new TlasPointerArena(30000);
-
-        public TLASSectionManager() {
-            //Allocate index 0 to entity blas
-            if (arena.allocate(1) != 0) {
-                throw new IllegalStateException();
-            }
-        }
-
+        private final ConcurrentLinkedDeque<AccelerationBlasBuilder.BLASBuildResult> sectionUpdates = new ConcurrentLinkedDeque<>();
+        private final ConcurrentLinkedDeque<RenderSection> sectionRemovals = new ConcurrentLinkedDeque<>();
+        private final Map<ChunkSectionPos, VRef<Holder>> activeSections = new HashMap<>();
+        private final ArrayList<DescriptorUpdateJob> descriptorUpdateJobs = new ArrayList<>();
         private VRef<VDescriptorSetLayout> geometryBufferSetLayout;
         private VRef<VDescriptorSet> geometryBufferDescSet = null;
-
         private int setCapacity = 0;
 
-        private record DescUpdateJob(int binding, int dstArrayElement, VRef<VBuffer> geometryBuffer, List<Long> geometryBufferOffsets) {
+        public TLASSectionManager() {
+            super();
         }
-
-        private record ArenaDeallocJob(int index, int count, VRef<VBuffer> geometryBuffer) {
-        }
-
-        private final ConcurrentLinkedDeque<DescUpdateJob> descUpdateJobs = new ConcurrentLinkedDeque<>();
-        private final ConcurrentLinkedDeque<ArenaDeallocJob> arenaDeallocJobs = new ConcurrentLinkedDeque<>();
 
         public void resizeBindlessSet(int newSize) {
             if (geometryBufferSetLayout == null) {
@@ -353,143 +430,179 @@ public class AccelerationTLASManager {
         }
 
         @Override
-        public VRef<VBuffer> getInstanceBuffer(VkAccelerationStructureInstanceKHR addin) {
-            resizeBindlessSet(arena.maxIndex);
-
-            if (!descUpdateJobs.isEmpty()) {
-                var dub = new DescriptorUpdateBuilder(context, descUpdateJobs.size());
-                dub.set(geometryBufferDescSet);
-                while (!descUpdateJobs.isEmpty()) {
-                    var job = descUpdateJobs.poll();
-                    dub.buffer(job.binding, job.dstArrayElement, job.geometryBuffer, job.geometryBufferOffsets);
+        public Pair<VRef<VBuffer>, Integer> getInstanceBuffer() {
+            HashSet<RenderSection> removals = new HashSet<>();
+            {
+                RenderSection section;
+                while ((section = sectionRemovals.poll()) != null) {
+                    removals.add(section);
                 }
+            }
+
+            // Filter updates to only the latest
+            HashMap<ChunkSectionPos, AccelerationBlasBuilder.BLASBuildResult> updates = new HashMap<>();
+            {
+                AccelerationBlasBuilder.BLASBuildResult result;
+                while ((result = sectionUpdates.poll()) != null) {
+                    var data = result.data();
+                    var section = data.section();
+                    if (removals.contains(section)) {
+                        // Already removed, close the buffers and continue
+                        result.structure().close();
+                        data.geometryBuffer().close();
+                    } else {
+                        // We process the updates sequentially
+                        // Older updates are overwritten
+                        var key = section.getPosition();
+                        if (updates.containsKey(key)) {
+                            var prev = updates.get(key);
+                            prev.structure().close();
+                            prev.data().geometryBuffer().close();
+                        }
+                        updates.put(key, result);
+                    }
+                }
+            }
+
+            // Process removals
+            for (var section : removals) {
+                var prev = activeSections.remove(section.getPosition());
+                if (prev != null) {
+                    free(prev.get().id);
+                    prev.close();
+                }
+            }
+
+            int newGeoms = 0;
+            for (var entry : updates.entrySet()) {
+                newGeoms += entry.getValue().data().bufferOffsets().size();
+            }
+            resizeBindlessSet(Integer.max(arena.maxIndex + newGeoms, 1024));
+
+            // Process updates
+            if (!updates.isEmpty() || !descriptorUpdateJobs.isEmpty()) {
+                var dub = new DescriptorUpdateBuilder(context, updates.size() + descriptorUpdateJobs.size());
+                dub.set(geometryBufferDescSet);
+
+                for (var entry : updates.entrySet()) {
+                    var result = entry.getValue();
+                    var data = result.data();
+                    var section = data.section();
+                    var posKey = section.getPosition();
+
+                    var prevHolder = activeSections.remove(posKey);
+                    if (prevHolder != null) {
+                        free(prevHolder.get().id);
+                        prevHolder.close();
+                    }
+
+                    int numGeometriesInInstance = data.bufferOffsets().size();
+                    int geometryIndex = arena.allocate(numGeometriesInInstance);
+
+                    // Add the geometry buffer to the descriptor set (the set retains another reference)
+                    dub.buffer(0, geometryIndex, data.geometryBuffer(), data.bufferOffsets());
+                    data.geometryBuffer().close();
+
+                    int id;
+                    try (var stack = stackPush()) {
+                        var asi = VkAccelerationStructureInstanceKHR.calloc(stack)
+                                .mask(~0)
+                                .instanceCustomIndex(geometryIndex)
+                                .accelerationStructureReference(result.structure().get().deviceAddress);
+                        asi.transform()
+                                .matrix(new Matrix4x3f()
+                                        .translate(section.getOriginX(), section.getOriginY(),
+                                                section.getOriginZ())
+                                        .getTransposed(stack.mallocFloat(12)));
+
+                        id = alloc(asi);
+                    }
+
+                    // Ownership of result.structure() is transferred to the holder
+                    var holder = Holder.create(id, geometryIndex, numGeometriesInInstance, result.structure(), this);
+                    activeSections.put(section.getPosition(), holder);
+                }
+
+                for (var job : descriptorUpdateJobs) {
+                    dub.buffer(0, job.element, job.geometryBuffer, job.bufferOffsets);
+                    job.geometryBuffer.close();
+                }
+                descriptorUpdateJobs.clear();
+
                 dub.apply();
             }
 
-            // Since we have residency tracking through the descriptor set,
-            // we can free the buffers immediately
-            collect();
-
-            return super.getInstanceBuffer(addin);
+            return super.getInstanceBuffer();
         }
 
-        // TODO: mixinto RenderSection and add a reference to a holder for us, its much
-        // faster than a hashmap
-        private static final class Holder {
-            final int id;
-            int geometryIndex = -1;
-            VRef<VBuffer> geometryBuffer;
-            List<Long> geometryBufferOffsets;
-
-            final RenderSection section;
-            VRef<VAccelerationStructure> structure;
-
-            private Holder(int id, RenderSection section) {
-                this.id = id;
-                this.section = section;
-            }
-        }
-
-        Map<ChunkSectionPos, Holder> tmp = new HashMap<>();
-
-        public void collect() {
-            ArenaDeallocJob job;
-            while ((job = arenaDeallocJobs.poll()) != null) {
-                arena.free(job.index, job.count);
-                job.geometryBuffer.close();
+        private void arenaFree(int index, int count) {
+            arena.free(index, count);
+            for (int i = 0; i < count; i++) {
+                geometryBufferDescSet.get().removeRef(index + i);
             }
         }
 
         public void update(AccelerationBlasBuilder.BLASBuildResult result) {
-            var data = result.data();
-            var holder = tmp.computeIfAbsent(data.section().getPosition(), a -> new Holder(alloc(), data.section()));
-            holder.structure = result.structure();
-
-            if (holder.geometryIndex != -1) {
-                arenaDeallocJobs.add(new ArenaDeallocJob(holder.geometryIndex, holder.geometryBufferOffsets.size(),
-                        holder.geometryBuffer));
-            }
-            holder.geometryBuffer = data.geometryBuffer();
-            holder.geometryBufferOffsets = data.bufferOffsets();
-            holder.geometryIndex = arena.allocate(holder.geometryBufferOffsets.size());
-
-            descUpdateJobs.add(new DescUpdateJob(0, holder.geometryIndex, holder.geometryBuffer, holder.geometryBufferOffsets));
-
-            try (var stack = stackPush()) {
-                var asi = VkAccelerationStructureInstanceKHR.calloc(stack)
-                        .mask(~0)
-                        .instanceCustomIndex(holder.geometryIndex)
-                        .accelerationStructureReference(holder.structure.get().deviceAddress);
-                asi.transform()
-                        .matrix(new Matrix4x3f()
-                                .translate(holder.section.getOriginX(), holder.section.getOriginY(),
-                                        holder.section.getOriginZ())
-                                .getTransposed(stack.mallocFloat(12)));
-                update(holder.id, asi);
-            }
+            sectionUpdates.add(result);
         }
 
         public void remove(RenderSection section) {
-            var holder = tmp.remove(section.getPosition());
-            if (holder == null)
+            sectionRemovals.add(section);
+        }
+
+        public void addEphemeralInstance(VCmdBuff cmd, VkAccelerationStructureInstanceKHR asi, final VRef<VAccelerationStructure> structure, final VRef<VBuffer> geometryBuffer, List<Long> bufferOffsets) {
+            if (bufferOffsets.isEmpty()) {
                 return;
-
-            free(holder.id);
-
-            for (var job : descUpdateJobs) {
-                if (job.geometryBuffer == holder.geometryBuffer) {
-                    descUpdateJobs.remove(job);
-                }
             }
 
-            if (holder.geometryIndex != -1) {
-                arenaDeallocJobs.add(new ArenaDeallocJob(holder.geometryIndex, holder.geometryBufferOffsets.size(),
-                        holder.geometryBuffer));
+            int numGeometries = bufferOffsets.size();
+            int geometryIndex = arena.allocate(bufferOffsets.size());
+
+            asi.accelerationStructureReference(structure.get().deviceAddress);
+            asi.instanceCustomIndex(geometryIndex);
+
+            addEphemeralInstance(asi);
+
+            var holder = Holder.create(-1, geometryIndex, numGeometries, structure.addRef(), this);
+            cmd.moveRefGeneric(holder.addRefGeneric());
+            holder.close();
+
+            descriptorUpdateJobs.add(new DescriptorUpdateJob(geometryIndex, geometryBuffer.addRef(), bufferOffsets));
+        }
+
+        public record DescriptorUpdateJob(int element, VRef<VBuffer> geometryBuffer, List<Long> bufferOffsets) {
+        }
+
+        // TODO: mixinto RenderSection and add a reference to a holder for us, its much
+        // faster than a hashmap
+        private static final class Holder extends VObject {
+            // A holder holds (duh) a section and its associated data
+            // The data might currently be in use by the gpu
+
+            final int id;
+            final TLASSectionManager manager;
+            final int geometryIndex;
+            final int numGeometries;
+            final VRef<VAccelerationStructure> structure;
+
+            private Holder(int id, int geometryIndex, int numGeometries, VRef<VAccelerationStructure> structure, TLASSectionManager manager) {
+                this.id = id;
+                this.geometryIndex = geometryIndex;
+                this.numGeometries = numGeometries;
+                this.structure = structure;
+                this.manager = manager;
+            }
+
+            public static VRef<Holder> create(int id, int geometryIndex, int numGeometries, VRef<VAccelerationStructure> structure, TLASSectionManager manager) {
+                return new VRef<>(new Holder(id, geometryIndex, numGeometries, structure, manager));
+            }
+
+            @Override
+            protected void free() {
+                structure.close();
+                // This removes it from the geometry buffer & descriptor set
+                manager.arenaFree(geometryIndex, numGeometries);
             }
         }
-    }
-
-    private static final class TlasPointerArena {
-        private final BitSet vacant;
-        public int maxIndex = 0;
-
-        private TlasPointerArena(int size) {
-            size *= 3;
-            vacant = new BitSet(size);
-            vacant.set(0, size);
-        }
-
-        public int allocate(int count) {
-            int pos = vacant.nextSetBit(0);
-            outer: while (pos != -1) {
-                for (int offset = 1; offset < count; offset++) {
-                    if (!vacant.get(offset + pos)) {
-                        pos = vacant.nextSetBit(offset + pos + 1);
-                        continue outer;
-                    }
-                }
-                break;
-            }
-            if (pos == -1) {
-                throw new IllegalStateException();
-            }
-            vacant.clear(pos, pos + count);
-            maxIndex = Math.max(maxIndex, pos + count);
-            return pos;
-        }
-
-        public void free(int pos, int count) {
-            vacant.set(pos, pos + count);
-
-            maxIndex = vacant.previousClearBit(maxIndex) + 1;
-        }
-    }
-
-    public VRef<VDescriptorSet> getGeometrySet() {
-        return buildDataManager.geometryBufferDescSet.addRef();
-    }
-
-    public VRef<VDescriptorSetLayout> getGeometryLayout() {
-        return buildDataManager.geometryBufferSetLayout.addRef();
     }
 }

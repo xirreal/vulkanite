@@ -11,7 +11,6 @@ import me.cortex.vulkanite.lib.memory.VGImage;
 import net.coderbot.iris.gl.buffer.ShaderStorageBuffer;
 import net.coderbot.iris.gl.texture.TextureAccess;
 import net.coderbot.iris.gl.buffer.ShaderStorageBufferHolder;
-import net.coderbot.iris.gl.uniform.DynamicUniformHolder;
 import net.coderbot.iris.mixin.LevelRendererAccessor;
 import net.coderbot.iris.pipeline.CustomTextureManager;
 import net.coderbot.iris.pipeline.newshader.NewWorldRenderingPipeline;
@@ -19,9 +18,8 @@ import net.coderbot.iris.rendertarget.RenderTargets;
 import net.coderbot.iris.shaderpack.ProgramSet;
 import net.coderbot.iris.shaderpack.texture.TextureStage;
 import net.coderbot.iris.uniforms.CelestialUniforms;
-import net.coderbot.iris.uniforms.custom.CustomUniforms;
 import net.minecraft.client.render.Camera;
-import org.jetbrains.annotations.Nullable;
+import net.minecraft.client.MinecraftClient;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -29,12 +27,11 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-
-import static org.lwjgl.opengl.GL11.glFinish;
 
 @Mixin(value = NewWorldRenderingPipeline.class, remap = false)
 public class MixinNewWorldRenderingPipeline {
@@ -80,6 +77,9 @@ public class MixinNewWorldRenderingPipeline {
 
     @Inject(method = "renderShadows", at = @At("TAIL"))
     private void renderShadows(LevelRendererAccessor par1, Camera par2, CallbackInfo ci) {
+        var prof = MinecraftClient.getInstance().getProfiler();
+        prof.push("vulkanite_render_shadows");
+
         ShaderStorageBuffer[] buffers = new ShaderStorageBuffer[0];
 
         if(shaderStorageBufferHolder != null) {
@@ -94,6 +94,15 @@ public class MixinNewWorldRenderingPipeline {
         MixinCelestialUniforms celestialUniforms = (MixinCelestialUniforms)(Object) new CelestialUniforms(this.sunPathRotation);
 
         pipeline.renderPostShadows(outImgs, par2, buffers, celestialUniforms);
+
+        prof.pop();
+    }
+
+    @Inject(method = "shouldDisableVanillaEntityShadows", at = @At("HEAD"), cancellable = true)
+    private void shouldDisableVanillaEntityShadows(CallbackInfoReturnable<Boolean> ci) {
+        if (pipeline != null) {
+            ci.setReturnValue(true);
+        }
     }
 
     @Inject(method = "destroyShaders", at = @At("TAIL"))

@@ -88,7 +88,6 @@ public abstract class MixinGlTexture extends MixinGlResource implements IVGImage
 
     @Overwrite
     protected void destroyInternal(){
-        glFinish();
         sharedImage = null;
     }
 

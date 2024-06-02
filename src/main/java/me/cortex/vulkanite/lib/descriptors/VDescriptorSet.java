@@ -1,22 +1,25 @@
 package me.cortex.vulkanite.lib.descriptors;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import me.cortex.vulkanite.lib.base.VContext;
 import me.cortex.vulkanite.lib.base.VObject;
 import me.cortex.vulkanite.lib.base.VRef;
 import org.lwjgl.vulkan.VkCopyDescriptorSet;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.vulkan.VK10.vkUpdateDescriptorSets;
 
 public class VDescriptorSet extends VObject {
-    private final VRef<VDescriptorPool> pool;
     public final long poolHandle;
     public final long set;
+    private final VRef<VDescriptorPool> pool;
+    private final Int2ObjectArrayMap<VRef<VObject>> refs = new Int2ObjectArrayMap<>();
 
-    private final Map<Integer, VRef<VObject>> refs = new HashMap<>();
+    protected VDescriptorSet(VRef<VDescriptorPool> pool, long poolHandle, long set) {
+        this.pool = pool;
+        this.poolHandle = poolHandle;
+        this.set = set;
+    }
 
     public void addRef(int binding, VRef<VObject> ref) {
         var old = refs.put(binding, ref);
@@ -25,10 +28,11 @@ public class VDescriptorSet extends VObject {
         }
     }
 
-    protected VDescriptorSet(VRef<VDescriptorPool> pool, long poolHandle, long set) {
-        this.pool = pool;
-        this.poolHandle = poolHandle;
-        this.set = set;
+    public void removeRef(int binding) {
+        var old = refs.remove(binding);
+        if (old != null) {
+            old.close();
+        }
     }
 
     @Override
@@ -38,8 +42,8 @@ public class VDescriptorSet extends VObject {
     }
 
     public void copyFrom(VContext ctx, VRef<VDescriptorSet> other, int setCapacity) {
-        for (var entry : other.get().refs.entrySet()) {
-            refs.put(entry.getKey(), entry.getValue().addRef());
+        for (var entry : other.get().refs.int2ObjectEntrySet()) {
+            refs.put(entry.getIntKey(), entry.getValue().addRef());
         }
 
         try (var stack = stackPush()) {

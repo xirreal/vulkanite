@@ -13,11 +13,11 @@ import org.lwjgl.vulkan.VkDescriptorImageInfo;
 import org.lwjgl.vulkan.VkWriteDescriptorSet;
 import org.lwjgl.vulkan.VkWriteDescriptorSetAccelerationStructureKHR;
 
-import static org.lwjgl.vulkan.KHRAccelerationStructure.VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-import static org.lwjgl.vulkan.VK10.*;
-
 import java.util.ArrayList;
 import java.util.List;
+
+import static org.lwjgl.vulkan.KHRAccelerationStructure.VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+import static org.lwjgl.vulkan.VK10.*;
 
 public class DescriptorUpdateBuilder {
     private final VContext ctx;
@@ -27,6 +27,8 @@ public class DescriptorUpdateBuilder {
     private ArrayList<VkDescriptorBufferInfo.Buffer> bulkBufferInfos = new ArrayList<>();
     private ArrayList<VkDescriptorImageInfo.Buffer> bulkImageInfos = new ArrayList<>();
     private ShaderReflection.Set refSet = null;
+    private long set;
+    private VRef<VDescriptorSet> setRef;
 
     public DescriptorUpdateBuilder(VContext ctx, int maxUpdates) {
         this(ctx, maxUpdates, null);
@@ -61,8 +63,6 @@ public class DescriptorUpdateBuilder {
         return v == null ? placeholderImageView.get().view : v.get().view;
     }
 
-    private long set;
-    private VRef<VDescriptorSet> setRef;
     public DescriptorUpdateBuilder set(VRef<VDescriptorSet> set) {
         this.set = set.get().set;
         this.setRef = set.addRef();
@@ -72,6 +72,7 @@ public class DescriptorUpdateBuilder {
     public DescriptorUpdateBuilder buffer(int binding, final VRef<VBuffer> buffer) {
         return buffer(binding, buffer, 0, VK_WHOLE_SIZE);
     }
+
     public DescriptorUpdateBuilder buffer(int binding, final VRef<VBuffer> buffer, long offset, long range) {
         if (refSet != null && refSet.getBindingAt(binding) == null) {
             return this;
@@ -98,7 +99,7 @@ public class DescriptorUpdateBuilder {
         }
         var bufInfo = VkDescriptorBufferInfo.calloc(buffers.size());
         for (int i = 0; i < buffers.size(); i++) {
-            setRef.get().addRef(binding, buffers.get(i).addRefGeneric());
+            setRef.get().addRef(binding + dstArrayElement + i, buffers.get(i).addRefGeneric());
             bufInfo.get(i)
                     .buffer(buffers.get(i).get().buffer())
                     .offset(0)
@@ -122,7 +123,7 @@ public class DescriptorUpdateBuilder {
         }
         var bufInfo = VkDescriptorBufferInfo.calloc(offsets.size());
         for (int i = 0; i < offsets.size(); i++) {
-            setRef.get().addRef(binding, buffer.addRefGeneric());
+            setRef.get().addRef(binding + dstArrayElement + i, buffer.addRefGeneric());
             bufInfo.get(i)
                     .buffer(buffer.get().buffer())
                     .offset(offsets.get(i))
@@ -144,6 +145,7 @@ public class DescriptorUpdateBuilder {
     public DescriptorUpdateBuilder uniform(int binding, final VRef<VBuffer> buffer) {
         return uniform(binding, buffer, 0, VK_WHOLE_SIZE);
     }
+
     public DescriptorUpdateBuilder uniform(int binding, final VRef<VBuffer> buffer, long offset, long range) {
         if (refSet != null && refSet.getBindingAt(binding) == null) {
             return this;
@@ -206,9 +208,11 @@ public class DescriptorUpdateBuilder {
         bulkImageInfos.add(imgInfo);
         return this;
     }
+
     public DescriptorUpdateBuilder imageStore(int binding, final VRef<VImageView> view) {
         return imageStore(binding, VK_IMAGE_LAYOUT_GENERAL, view);
     }
+
     public DescriptorUpdateBuilder imageStore(int binding, int layout, final VRef<VImageView> view) {
         if (refSet != null && refSet.getBindingAt(binding) == null) {
             return this;

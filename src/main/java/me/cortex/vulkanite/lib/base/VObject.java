@@ -1,11 +1,13 @@
 package me.cortex.vulkanite.lib.base;
 
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public abstract class VObject {
+    protected final AtomicInteger refCount = new AtomicInteger(0);
+    protected Object heap = null;
+
     protected abstract void free();
 
-    protected final AtomicLong refCount = new AtomicLong(0);
     protected void incRef() {
         if (refCount.incrementAndGet() == 1) {
             // First reference, put into registry
@@ -19,6 +21,4 @@ public abstract class VObject {
             VRegistry.INSTANCE.unregister(this);
         }
     }
-
-    public Object heap = null;
 }

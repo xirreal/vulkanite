@@ -39,6 +39,13 @@ public class VCmdBuff extends VObject {
     public void addBufferRef(final VRef<VBuffer> buffer) {
         refs.add(buffer.addRefGeneric());
     }
+
+    // This is a generic method that can be used to add any type of VObject to the refs list
+    // ref should be produced by addRefGeneric() method of the object
+    public void moveRefGeneric(final VRef<VObject> ref) {
+        refs.add(ref);
+    }
+
     public void addImageRef(final VRef<VImage> image) {
         refs.add(image.addRefGeneric());
     }
@@ -138,6 +145,17 @@ public class VCmdBuff extends VObject {
     public void resetQueryPool(final VRef<VQueryPool> queryPool, int first, int size) {
         vkCmdResetQueryPool(buffer, queryPool.get().pool, first, size);
         refs.add(queryPool.addRefGeneric());
+    }
+
+    public void encodeBufferCopy(final VRef<VBuffer> src, long srcOffset, final VRef<VBuffer> dest, long destOffset, long size) {
+        try (var stack = stackPush()) {
+            var copy = VkBufferCopy.calloc(1, stack);
+            copy.get(0).srcOffset(srcOffset).dstOffset(destOffset).size(size);
+            vkCmdCopyBuffer(buffer, src.get().buffer(), dest.get().buffer(), copy);
+        }
+
+        addBufferRef(src);
+        addBufferRef(dest);
     }
 
     public void encodeDataUpload(MemoryManager manager, long src, final VRef<VBuffer> dest, long destOffset, long size) {

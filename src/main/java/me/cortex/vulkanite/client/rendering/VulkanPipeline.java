@@ -18,6 +18,7 @@ import me.cortex.vulkanite.lib.memory.VGImage;
 import me.cortex.vulkanite.lib.memory.VImage;
 import me.cortex.vulkanite.lib.other.VImageView;
 import me.cortex.vulkanite.lib.other.VSampler;
+import me.cortex.vulkanite.lib.other.VUtil;
 import me.cortex.vulkanite.lib.other.sync.VSemaphore;
 import me.cortex.vulkanite.lib.pipeline.RaytracePipelineBuilder;
 import me.cortex.vulkanite.lib.pipeline.VRaytracePipeline;
@@ -236,14 +237,28 @@ public class VulkanPipeline {
     }
 
     private final EntityCapture capture = new EntityCapture();
-    private void buildEntities() {
+    private void captureEntities() {
         accelerationManager.setEntityData(supportsEntities?capture.capture(CapturedRenderingState.INSTANCE.getTickDelta(), MinecraftClient.getInstance().world):null);
     }
 
     public void renderPostShadows(List<VRef<VGImage>> vgOutImgs, Camera camera, ShaderStorageBuffer[] ssbos, MixinCelestialUniforms celestialUniforms) {
-        ctx.cmd.newFrame();
+        var prof = MinecraftClient.getInstance().getProfiler();
 
-        buildEntities();
+        for (int i = 0; i < 15; i++) {
+            if (VUtil._REPORT_GL_ERROR_()) {
+                break;
+            } else if (i == 14) {
+                System.err.println("Found OpenGL errors generated outside Vulkanite that can't be cleared");
+                VUtil._CHECK_GL_ERROR_();
+            }
+        }
+
+        ctx.cmd.newFrame();
+        VRegistry.INSTANCE.threadLocalCollect();
+
+        prof.push("vulkanite_capture_entities");
+        captureEntities();
+        prof.pop();
 
         PBRTextureManager.notifyPBRTexturesChanged();
 
@@ -256,7 +271,9 @@ public class VulkanPipeline {
         var cmdRef = ctx.cmd.getSingleUsePool().createCommandBuffer();
         var cmd = cmdRef.get();
 
+        prof.push("vulkanite_build_tlas");
         var tlas = accelerationManager.buildTLAS(0, cmd);
+        prof.pop();
 
         if (tlas == null) {
             VRegistry.INSTANCE.threadLocalCollect();
@@ -273,6 +290,7 @@ public class VulkanPipeline {
 
         var uboBuffer = uboAllocator.allocate(1024);
         {
+            prof.push("vulkanite_encode_rt_passes");
             long ptr = uboBuffer.buffer().get().map();
             MemoryUtil.memSet(ptr, 0, 1024);
             {
@@ -414,6 +432,7 @@ public class VulkanPipeline {
                 }
             }
 
+            prof.pop();
             ctx.cmd.submit(0, cmdRef, Arrays.asList(vref_in), Arrays.asList(vref_out), null);
         }
 
@@ -427,7 +446,6 @@ public class VulkanPipeline {
         in.close();
         out.close();
 
-        VRegistry.INSTANCE.threadLocalCollect();
         // System.out.println(VRegistry.INSTANCE.dumpStats());
     }
 

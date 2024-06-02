@@ -101,6 +101,15 @@ public class VUtil {
         }
     }
 
+    public static boolean _REPORT_GL_ERROR_() {
+        int e = glGetError();
+        if (e != GL_NO_ERROR) {
+            System.err.println("Gl error: " + e);
+            return false;
+        }
+        return true;
+    }
+
 
     public static int alignUp(int size, int alignment) {
         return (size + alignment - 1) & -alignment;

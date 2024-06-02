@@ -18,6 +18,7 @@ import java.util.function.Function;
 
 import static me.cortex.vulkanite.lib.other.VUtil._CHECK_;
 import static me.cortex.vulkanite.lib.other.VUtil._CHECK_GL_ERROR_;
+import static me.cortex.vulkanite.lib.other.VUtil._REPORT_GL_ERROR_;
 import static org.lwjgl.opengl.ARBDirectStateAccess.*;
 import static org.lwjgl.opengl.EXTMemoryObject.*;
 import static org.lwjgl.opengl.EXTMemoryObjectFD.GL_HANDLE_TYPE_OPAQUE_FD_EXT;
@@ -173,7 +174,7 @@ public class MemoryManager {
 
             var allocationCreateInfo = VmaAllocationCreateInfo.calloc(stack)
                             .requiredFlags(properties);
-            
+
             var alloc = allocator.allocShared(bufferCreateInfo, allocationCreateInfo);
 
             int memoryObject = ExternalMemoryTracker.acquire(alloc, device, alloc.isDedicated());
@@ -189,6 +190,7 @@ public class MemoryManager {
         return createSharedImage(2, width, height, 1, mipLevels, vkFormat, glFormat, usage, properties);
     }
     public VRef<VGImage> createSharedImage(int dimensions, int width, int height, int depth, int mipLevels, int vkFormat, int glFormat, int usage, int properties) {
+        _REPORT_GL_ERROR_();
 
         int vkImageType = VK_IMAGE_TYPE_2D;
         int glImageType = GL_TEXTURE_2D;
@@ -200,6 +202,14 @@ public class MemoryManager {
             vkImageType = VK_IMAGE_TYPE_3D;
             glImageType = GL_TEXTURE_3D;
         }
+
+        System.out.println(
+                "Creating shared image with dimensions: " + width + "," + height + "," + depth +
+                        " vkImageType: " + vkImageType +
+                        " glImageType: " + glImageType +
+                        " mipLevels: " + mipLevels +
+                        " vkFormat: " + vkFormat +
+                        " glFormat: " + glFormat);
 
         try (var stack = stackPush()) {
             var createInfo = VkImageCreateInfo
@@ -227,6 +237,7 @@ public class MemoryManager {
 
             int glId = glCreateTextures(glImageType);
             glTextureParameteri(glId, GL_TEXTURE_TILING_EXT, GL_OPTIMAL_TILING_EXT);
+            _CHECK_GL_ERROR_();
 
             switch(glImageType) {
                 case GL_TEXTURE_1D:

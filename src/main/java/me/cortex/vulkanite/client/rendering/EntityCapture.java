@@ -15,16 +15,15 @@ import net.minecraft.client.render.*;
 import net.minecraft.client.texture.TextureManager;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.client.render.GameRenderer;
+import net.minecraft.entity.Entity;
 import net.minecraft.util.Pair;
 import net.minecraft.world.World;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.*;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static org.lwjgl.util.vma.Vma.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
@@ -86,10 +85,22 @@ public class EntityCapture {
                     if (builtBuffer.getParameters().format().equals(IrisVertexFormats.TERRAIN)) {
                         return;
                     }
-                    //Dont support no texture things
-                    if (((RenderLayer.MultiPhase)layer).phases.texture.getId().isEmpty()) {
+
+                    // TODO: Support anything other than ENTITY
+                    if (!builtBuffer.getParameters().format().equals(IrisVertexFormats.ENTITY)) {
                         return;
                     }
+
+                    //Dont support no texture things
+                    if (!(layer instanceof RenderLayer.MultiPhase)) {
+                        return;
+                    }
+
+                    var texture = ((RenderLayer.MultiPhase)layer).phases.texture;
+                    if ((texture == null) || (texture.getId().isEmpty())) {
+                        return;
+                    }
+
                     buffers.add(new Pair<>(layer, builtBuffer));
                 }
             });
