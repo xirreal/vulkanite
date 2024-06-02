@@ -5,9 +5,9 @@ import me.cortex.vulkanite.compat.IRenderTargetVkGetter;
 import me.cortex.vulkanite.lib.base.VRef;
 import me.cortex.vulkanite.lib.memory.VGImage;
 import me.cortex.vulkanite.lib.other.FormatConverter;
-import net.coderbot.iris.gl.texture.InternalTextureFormat;
-import net.coderbot.iris.gl.texture.PixelFormat;
-import net.coderbot.iris.rendertarget.RenderTarget;
+import net.irisshaders.iris.gl.texture.InternalTextureFormat;
+import net.irisshaders.iris.gl.texture.PixelFormat;
+import net.irisshaders.iris.targets.RenderTarget;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -33,15 +33,15 @@ public abstract class MixinRenderTarget implements IRenderTargetVkGetter {
 
     }
 
-    @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lnet/coderbot/iris/rendertarget/RenderTarget;setupTexture(IIIZ)V", ordinal = 0))
+    @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lnet/irisshaders/iris/targets/RenderTarget;setupTexture(IIIZ)V", ordinal = 0))
     private void redirectMain(RenderTarget instance, int id, int width, int height, boolean allowsLinear) {
         setupTextures(width, height, allowsLinear);
     }
 
-    @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lnet/coderbot/iris/rendertarget/RenderTarget;setupTexture(IIIZ)V", ordinal = 1))
+    @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lnet/irisshaders/iris/targets/RenderTarget;setupTexture(IIIZ)V", ordinal = 1))
     private void redirectAlt(RenderTarget instance, int id, int width, int height, boolean allowsLinear) {}
 
-    @Redirect(method = "setupTexture", at = @At(value = "INVOKE",target = "Lnet/coderbot/iris/rendertarget/RenderTarget;resizeTexture(III)V"))
+    @Redirect(method = "setupTexture", at = @At(value = "INVOKE",target = "Lnet/irisshaders/iris/targets/RenderTarget;resizeTexture(III)V"))
     private void redirectResize(RenderTarget instance, int t, int w, int h) {}
 
     @Overwrite

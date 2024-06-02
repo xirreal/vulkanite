@@ -1,6 +1,6 @@
 package me.cortex.vulkanite.mixin.iris;
 
-import net.coderbot.iris.uniforms.CelestialUniforms;
+import net.irisshaders.iris.uniforms.CelestialUniforms;
 import org.joml.Vector4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Invoker;

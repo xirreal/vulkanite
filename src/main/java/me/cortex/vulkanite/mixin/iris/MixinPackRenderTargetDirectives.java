@@ -1,7 +1,7 @@
 package me.cortex.vulkanite.mixin.iris;
 
 import com.google.common.collect.ImmutableSet;
-import net.coderbot.iris.shaderpack.PackRenderTargetDirectives;
+import net.irisshaders.iris.shaderpack.properties.PackRenderTargetDirectives;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;

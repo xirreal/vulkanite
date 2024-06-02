@@ -4,7 +4,7 @@ import com.mojang.blaze3d.platform.GlStateManager;
 import me.cortex.vulkanite.client.Vulkanite;
 import me.cortex.vulkanite.compat.IVGImage;
 import me.cortex.vulkanite.lib.base.VRef;
-import net.coderbot.iris.texture.pbr.PBRAtlasTexture;
+import net.irisshaders.iris.texture.pbr.PBRAtlasTexture;
 import net.minecraft.client.texture.AbstractTexture;
 import net.minecraft.client.texture.SpriteAtlasTexture;
 import org.spongepowered.asm.mixin.Mixin;
